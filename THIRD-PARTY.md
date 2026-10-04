@@ -10,7 +10,8 @@ Much of this library is a translation into C# of code from the Rust crates
 - License: MIT OR Apache-2.0. The texts are in `LICENSE-MIT` and
   `LICENSE-APACHE` in this directory.
 
-Each ported file says which upstream file it comes from.
+Each ported file says which upstream file it comes from. The translation,
+like everything else here, was done by an AI; see `README.md`.
 
 The test data in `tests/BjoRx.Tests/testdata/` is copied from the same
 repository's `testdata/` directory, under the same license.
