@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>BjoRx.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="testdata\**\*.toml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BjoRx\BjoRx.csproj" />
+  </ItemGroup>
+
+</Project>
