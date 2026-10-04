@@ -24,12 +24,13 @@ namespace BjoRx.Search;
 /// </remarks>
 public abstract class Prefilter
 {
-    /// <summary>The length of the longest literal.</summary>
+    /// <summary>The length of the longest literal; 0 for a prefilter that searches for something else.</summary>
     public int MaxNeedleLength { get; private set; }
 
     /// <summary>
-    /// Whether the search is likely much faster than the regex engine.
-    /// Upstream uses it to choose between strategies not ported here.
+    /// Whether the search is likely much faster than the regex engine. The
+    /// meta regex tries the reverse suffix and inner strategies only without
+    /// a fast prefilter, and they need fast literal searches.
     /// </summary>
     public abstract bool IsFast { get; }
 

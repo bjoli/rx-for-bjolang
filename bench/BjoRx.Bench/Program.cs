@@ -29,6 +29,8 @@ public static class Program
             new("literal alternation", "Sherlock|Holmes|Watson|Irene|Adler", english),
             new("no match, no literal", "[A-Z][0-9]{5}[a-z]", english),
             new("words ending in ing", "[a-z]+ing", english),
+            // From upstream's rebar benchmarks.
+            new("[a-z]shing", "[a-z]shing", english),
             new("dates", "[0-9]{4}-[0-9]{2}-[0-9]{2}", english),
             new("identifiers", "[A-Za-z_][A-Za-z0-9_]*", english),
             new("numbers", "-?[0-9]+(?:\\.[0-9]+)?(?:[eE][-+]?[0-9]+)?", english),

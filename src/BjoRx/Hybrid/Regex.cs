@@ -16,10 +16,18 @@ public sealed class Regex
     public DFA Forward { get; }
     public DFA Reverse { get; }
 
-    private Regex(DFA forward, DFA reverse)
+    /// <summary>
+    /// The length in bytes of every match, when they all have the same:
+    /// then a match starts that far before its end, and the reverse search
+    /// is not needed. An idea from .NET's NonBacktracking engine.
+    /// </summary>
+    public int? FixedLength { get; }
+
+    private Regex(DFA forward, DFA reverse, int? fixedLength)
     {
         Forward = forward;
         Reverse = reverse;
+        FixedLength = fixedLength;
     }
 
     /// <summary>
@@ -32,12 +40,17 @@ public sealed class Regex
         config ??= new DfaConfig();
         var forward = Compiler.Compile(hir, new CompilerConfig { WhichCaptures = WhichCaptures.None });
         var reverse = Compiler.Compile(hir, new CompilerConfig { Reverse = true, WhichCaptures = WhichCaptures.None });
-        return FromNfas(forward, reverse, config);
+        return FromNfas(forward, reverse, config, FixedLengthOf(hir));
     }
 
-    public static Regex FromNfas(NFA forward, NFA reverse, DfaConfig config) =>
+    /// <summary>The length in bytes of every match of <paramref name="hir"/>, if they all have the same.</summary>
+    public static int? FixedLengthOf(Hir hir) =>
+        hir.Properties.MinimumLength is { } min && hir.Properties.MaximumLength == min ? min : null;
+
+    public static Regex FromNfas(NFA forward, NFA reverse, DfaConfig config, int? fixedLength = null) =>
         new(DFA.Create(forward, config),
-            DFA.Create(reverse, config with { MatchKind = MatchKind.All, Prefilter = null, SpecializeStartStates = false }));
+            DFA.Create(reverse, config with { MatchKind = MatchKind.All, Prefilter = null, SpecializeStartStates = false }),
+            fixedLength);
 
     public Cache CreateCache() => new(this);
 
@@ -66,6 +79,11 @@ public sealed class Regex
         if (input.Start == end.Offset || IsAnchored(input))
         {
             match = new Match(input.Start, end.Offset);
+            return true;
+        }
+        if (FixedLength is { } length)
+        {
+            match = new Match(end.Offset - length, end.Offset);
             return true;
         }
         // The match starts at the earliest offset from which the pattern

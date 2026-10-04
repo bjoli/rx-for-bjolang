@@ -53,6 +53,23 @@ internal abstract class Strategy
             ?? (Strategy)core;
     }
 
+    /// <summary>
+    /// Upstream's rule: a fast search for the literals every match starts
+    /// with beats searching for a later literal and then backwards.
+    /// </summary>
+    protected static bool HasFastLiteralPrefilter(Core core) =>
+        core.Pre is { IsFast: true } and not FixedDistanceSets;
+
+    /// <summary>
+    /// Fast fixed-distance sets check several bytes per candidate and, for
+    /// a pattern of fixed length, need no reverse search; that beats a
+    /// reverse strategy searching for a single byte (dates: 15.8 against
+    /// 9.2 GB/s), but not one searching for a longer literal (<c>[a-z]shing</c>:
+    /// 4.6 against 41 GB/s).
+    /// </summary>
+    protected static bool SetsBeatOneByte(Core core, Prefilter reverseLiteral) =>
+        core.Pre is FixedDistanceSets { IsFast: true } && reverseLiteral.MaxNeedleLength <= 1;
+
     protected static void CopyMatchToSlots(Match m, Span<int> slots)
     {
         if (slots.Length > 0) slots[0] = m.Start;
@@ -103,8 +120,9 @@ internal sealed class Pre(Prefilter pre) : Strategy
 /// <summary>
 /// The lazy DFA where it can, the PikeVM where it cannot: the forward DFA
 /// (with the prefilter) finds where a match ends and the reverse one where
-/// it starts; the PikeVM then finds the groups in that span only. When the
-/// DFA gives up or could not be built, the PikeVM searches alone.
+/// it starts, unless every match has the same length; the PikeVM then finds
+/// the groups in that span only. When the DFA gives up or could not be
+/// built, the PikeVM searches alone.
 /// </summary>
 internal sealed class Core : Strategy
 {
@@ -125,6 +143,13 @@ internal sealed class Core : Strategy
     {
         var config = info.Config;
         var nfa = Compiler.Compile(hir, new CompilerConfig { NfaSizeLimit = config.NfaSizeLimit });
+        // Without a fast literal search, the bytes at fixed distances from a
+        // match's start may make a better one (not upstream; .NET's idea).
+        if (config.AutoPrefilter && !info.IsAlwaysAnchoredStart && pre is not { IsFast: true }
+            && FixedDistanceSets.FromNfa(nfa) is { } sets)
+        {
+            pre = sets;
+        }
         HybridRegex? hybrid = null;
         if (config.Hybrid)
         {
@@ -146,7 +171,7 @@ internal sealed class Core : Strategy
             };
             try
             {
-                hybrid = HybridRegex.FromNfas(nfa, nfarev, dfaConfig);
+                hybrid = HybridRegex.FromNfas(nfa, nfarev, dfaConfig, HybridRegex.FixedLengthOf(hir));
             }
             catch (BuildException)
             {
@@ -300,11 +325,12 @@ internal sealed class ReverseSuffix : Strategy
         // Like the core's prefilter, only for unanchored searches, and the
         // reverse search needs the lazy DFA.
         if (!info.Config.AutoPrefilter || info.IsAlwaysAnchoredStart || core.Hybrid is null) return null;
-        if (core.Pre is { IsFast: true }) return null;
+        if (HasFastLiteralPrefilter(core)) return null;
         var suffixes = new Extractor { Kind = ExtractKind.Suffix }.Extract(hir);
         suffixes.OptimizeForSuffixByPreference();
         if (suffixes.LongestCommonSuffix() is not { Length: > 0 } lcs) return null;
         if (Prefilter.Create([lcs]) is not { IsFast: true } pre) return null;
+        if (SetsBeatOneByte(core, pre)) return null;
         if (!LiteralProofs.SuffixHasNoEarlierMatch(hir, lcs)) return null;
         return new ReverseSuffix(core, pre);
     }
@@ -412,8 +438,9 @@ internal sealed class ReverseInner : Strategy
         var info = core.Info;
         if (!info.Config.AutoPrefilter || info.IsAlwaysAnchoredStart || core.Hybrid is null) return null;
         // A fast prefix prefilter beats this; a slow one does not.
-        if (core.Pre is { IsFast: true }) return null;
+        if (HasFastLiteralPrefilter(core)) return null;
         if (InnerPrefilter.Create(hir) is not { } inner) return null;
+        if (SetsBeatOneByte(core, inner.Prefilter)) return null;
         if (!LiteralProofs.InnerHasNoEarlierMatch(inner.Prefix, inner.Literals)) return null;
         try
         {

@@ -68,6 +68,7 @@ public static class ReverseStrategyTests
         Strategy("reverse suffix", "[a-z]+[0-9]+Holmes");
         Strategy("reverse suffix", @"(\w+)(\s+)Holmes");
         Strategy("reverse suffix", "[A-Z][0-9]XYZ");
+        Strategy("reverse suffix", "[A-Z][0-9]{8}XYZ");
         Strategy("reverse suffix", "[a-z]shing");
         Strategy("reverse suffix", "[a-q][^u-z]{23}x");
         // The separator proofs are conservative.
@@ -94,7 +95,9 @@ public static class ReverseStrategyTests
         Strategy("reverse inner", "(a|aa)b");
         Strategy("reverse inner", @"\w+@\w+");
         Strategy("reverse inner", @"(?P<email>[.\pL]+@(?P<domain>[.\pL]+))");
-        Strategy("reverse inner", "[A-Z][0-9]@(foo|bar)");
+        // Upstream: reverse inner. Its inner literal shrinks to the one byte
+        // @, so BjoRx prefers the fixed-distance sets, as for dates.
+        Strategy("core", "[A-Z][0-9]@(foo|bar)");
         Strategy("reverse inner", @"\w+\s+Holmes\s+\w+");
         Strategy("reverse inner", @"\w+\d*\s+Holmes\s+\w+");
         Strategy("reverse inner", @"\w+\s+(?:Holmes|Watson)\s+\w+");
@@ -110,6 +113,9 @@ public static class ReverseStrategyTests
         Strategy("core", @"a.*@\w+");
         Strategy("core", "(?:[ac-z]{3}|[ac-z])(?:aba|baa)");
         Strategy("core", "(?:.abc)?[a]+[b]+c.*");
+        // Not upstream: the inner literal is one byte, and the fixed-distance
+        // sets around it (the dashes, digits) make a better search.
+        Strategy("core", "[0-9]{4}-[0-9]{2}-[0-9]{2}");
     }
 
     private static void Strip(string pattern, string suffix, string? expected) =>
