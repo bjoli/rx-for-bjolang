@@ -93,12 +93,11 @@ public sealed class TestParser
 
     private Hir ParseRepetitions(Hir atom, Flags flags, bool repeatable)
     {
-        bool repeated = false;
+        // As in Rust, a repetition can itself be repeated: a+* is (?:a+)*.
         while (More && Cur is '*' or '+' or '?' or '{')
         {
             if (Cur == '{' && !LooksLikeCounted()) break;
             if (!repeatable) throw Error("repetition operator missing expression");
-            if (repeated) throw Error("a repetition cannot be repeated directly; group it first");
             uint min;
             uint? max;
             switch (Cur)
@@ -115,7 +114,6 @@ public sealed class TestParser
                 lazy = true;
             }
             atom = Hir.Repetition(min, max, lazy == flags.SwapGreed, atom);
-            repeated = true;
         }
         return atom;
     }

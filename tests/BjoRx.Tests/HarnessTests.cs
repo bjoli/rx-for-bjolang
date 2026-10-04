@@ -74,6 +74,7 @@ public static class HarnessTests
         Check.Equal(Hir.Repetition(0, null, false, a), P("(?U)a*"), "swap greed");
         Check.Equal(Hir.Repetition(0, null, true, a), P("(?U)a*?"), "swap greed back");
         Check.Equal(Hir.Concat(Hir.Literal("a"), Hir.Repetition(0, null, true, Hir.Literal("b"))), P("ab*"), "binds to one scalar");
+        Check.Equal(Hir.Repetition(0, null, true, Hir.Repetition(1, null, true, a)), P("a+*"), "stacked, as Rust allows");
     }
 
     [Test]
@@ -91,7 +92,6 @@ public static class HarnessTests
     public static void RejectsBadPatterns()
     {
         Check.Throws<FormatException>(() => P("*a"), "leading *");
-        Check.Throws<FormatException>(() => P("a**"), "doubled repetition");
         Check.Throws<FormatException>(() => P("(a"), "unclosed group");
         Check.Throws<FormatException>(() => P("a)"), "unopened group");
         Check.Throws<FormatException>(() => P("[a"), "unclosed class");
