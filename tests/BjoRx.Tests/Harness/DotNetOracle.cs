@@ -4,6 +4,9 @@ using BjoRx.Syntax;
 
 namespace BjoRx.Tests.Harness;
 
+/// <summary>.NET gave an answer that cannot be right, so there is nothing to compare with.</summary>
+public sealed class OracleBrokenException(string message) : Exception(message);
+
 /// <summary>
 /// .NET's backtracking <see cref="Regex"/>, made to answer as the Rust crate
 /// would, to check this engine against. Its semantics are Perl's, which is
@@ -42,7 +45,7 @@ public sealed class DotNetOracle
         // still has its number and never matches, as in the crate's NFA builder.
         _groups = (int)MaxCaptureIndex(hir);
         _regex = new Regex(Pattern, RegexOptions.ExplicitCapture | RegexOptions.CultureInvariant,
-            TimeSpan.FromSeconds(5));
+            TimeSpan.FromMilliseconds(200));
     }
 
     private static uint MaxCaptureIndex(Hir hir) => hir switch
@@ -68,10 +71,29 @@ public sealed class DotNetOracle
         var result = new List<ExpectedMatch>();
         int pos = 0;
         int lastEnd = -1;
+        // Each round either reports a match or moves on, so a correct answer
+        // takes at most two rounds per position.
+        int rounds = 2 * text.Length + 4;
         while (pos <= text.Length && (limit is null || result.Count < limit))
         {
-            var m = _regex.Match(text, pos);
+            if (--rounds < 0) throw new OracleBrokenException(".NET's matches do not move forward");
+            System.Text.RegularExpressions.Match m;
+            try
+            {
+                m = _regex.Match(text, pos);
+            }
+            catch (OverflowException e)
+            {
+                // The interpreter's backtracking stack overflowing its int counters.
+                throw new OracleBrokenException(".NET overflowed: " + e.Message);
+            }
             if (!m.Success) break;
+            // Seen with nested lazy loops: \G(?:(?:x|(?:☃)*?)+?)+ on "😀"
+            // gives a match of length 3 in a string of length 2.
+            if (m.Index + m.Length > text.Length || m.Index < pos)
+            {
+                throw new OracleBrokenException($".NET reported {m.Index}..{m.Index + m.Length} searching from {pos} in a string of length {text.Length}");
+            }
             if (m.Length == 0 && m.Index == lastEnd)
             {
                 if (pos >= text.Length) break;
@@ -84,6 +106,10 @@ public sealed class DotNetOracle
             for (int g = 1; g <= _groups; g++)
             {
                 var group = m.Groups["g" + g];
+                if (group.Success && group.Index + group.Length > text.Length)
+                {
+                    throw new OracleBrokenException($".NET reported group {g} at {group.Index}..{group.Index + group.Length} in a string of length {text.Length}");
+                }
                 groups.Add(group.Success ? new Span(byteOffset[group.Index], byteOffset[group.Index + group.Length]) : null);
             }
             result.Add(new ExpectedMatch(groups));
