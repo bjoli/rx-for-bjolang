@@ -32,7 +32,8 @@ internal abstract class Strategy
     /// <summary>
     /// Picks the strategy for <paramref name="hir"/>: a literal search alone
     /// if the literals are the whole regex, else the core engines, searching
-    /// backwards from the end when every match ends there.
+    /// backwards from the end when every match ends there, or from a literal
+    /// every match ends with or contains.
     /// </summary>
     public static Strategy Create(RegexInfo info, Hir hir)
     {
@@ -46,7 +47,10 @@ internal abstract class Strategy
             pre = prefixes.Literals is { } lits ? Prefilter.Create(lits.Select(l => l.Bytes).ToList()) : null;
         }
         var core = Core.Create(info, pre, hir);
-        return ReverseAnchored.Create(core) ?? (Strategy)core;
+        return ReverseAnchored.Create(core)
+            ?? ReverseSuffix.Create(core, hir)
+            ?? ReverseInner.Create(core, hir)
+            ?? (Strategy)core;
     }
 
     protected static void CopyMatchToSlots(Match m, Span<int> slots)
@@ -105,12 +109,14 @@ internal sealed class Pre(Prefilter pre) : Strategy
 internal sealed class Core : Strategy
 {
     public RegexInfo Info { get; }
+    public Prefilter? Pre { get; }
     public PikeVM PikeVM { get; }
     public HybridRegex? Hybrid { get; }
 
-    private Core(RegexInfo info, PikeVM pikeVM, HybridRegex? hybrid)
+    private Core(RegexInfo info, Prefilter? pre, PikeVM pikeVM, HybridRegex? hybrid)
     {
         Info = info;
+        Pre = pre;
         PikeVM = pikeVM;
         Hybrid = hybrid;
     }
@@ -147,7 +153,7 @@ internal sealed class Core : Strategy
                 // The cache capacity is too small for this NFA.
             }
         }
-        return new Core(info, new PikeVM(nfa), hybrid);
+        return new Core(info, pre, new PikeVM(nfa), hybrid);
     }
 
     public override string Name => Hybrid is null ? "core (PikeVM)" : "core";
@@ -268,5 +274,254 @@ internal sealed class ReverseAnchored : Strategy
             return true;
         }
         return _core.SearchSlotsInMatch(cache, input, start.Offset, input.End, slots);
+    }
+}
+
+/// <summary>
+/// Every match ends with one literal: find it, search backwards from its end
+/// for where a match starts, then forwards from there for where it ends
+/// (which may be past this literal: <c>[a-z]+ing</c> in <c>tingling</c>).
+/// Upstream's ReverseSuffix.
+/// </summary>
+internal sealed class ReverseSuffix : Strategy
+{
+    private readonly Core _core;
+    private readonly Prefilter _pre;
+
+    private ReverseSuffix(Core core, Prefilter pre)
+    {
+        _core = core;
+        _pre = pre;
+    }
+
+    public static ReverseSuffix? Create(Core core, Hir hir)
+    {
+        var info = core.Info;
+        // Like the core's prefilter, only for unanchored searches, and the
+        // reverse search needs the lazy DFA.
+        if (!info.Config.AutoPrefilter || info.IsAlwaysAnchoredStart || core.Hybrid is null) return null;
+        if (core.Pre is { IsFast: true }) return null;
+        var suffixes = new Extractor { Kind = ExtractKind.Suffix }.Extract(hir);
+        suffixes.OptimizeForSuffixByPreference();
+        if (suffixes.LongestCommonSuffix() is not { Length: > 0 } lcs) return null;
+        if (Prefilter.Create([lcs]) is not { IsFast: true } pre) return null;
+        if (!LiteralProofs.SuffixHasNoEarlierMatch(hir, lcs)) return null;
+        return new ReverseSuffix(core, pre);
+    }
+
+    public override string Name => "reverse suffix";
+
+    public override GroupInfo GroupInfo => _core.GroupInfo;
+
+    public override Cache CreateCache() => _core.CreateCache();
+
+    /// <summary>
+    /// Where the first match starts: at each occurrence of the suffix, a
+    /// reverse search for a match ending with it, which must not rescan what
+    /// the search at the previous occurrence did.
+    /// </summary>
+    private Retry SearchStart(Cache cache, in Input input)
+    {
+        var haystack = input.Haystack.Span;
+        int spanStart = input.Start, end = input.End, minStart = 0;
+        while (_pre.Find(haystack, spanStart, end) is { } lit)
+        {
+            var rev = input with { Anchored = Anchored.Yes, End = lit.End };
+            var start = Limited.SearchRev(_core.Hybrid!.Reverse, cache.Hybrid!.Reverse, rev, minStart);
+            if (start.Kind != RetryKind.NoMatch) return start;
+            if (spanStart >= end) break;
+            spanStart = lit.Start + 1;
+            minStart = lit.End;
+        }
+        return Retry.NoMatch();
+    }
+
+    public override Match? Search(Cache cache, in Input input)
+    {
+        if (input.Anchored == Anchored.Yes) return _core.Search(cache, input);
+        var start = SearchStart(cache, input);
+        switch (start.Kind)
+        {
+            case RetryKind.Quadratic:
+                return _core.Search(cache, input);
+            case RetryKind.GaveUp:
+                return _core.SearchNoFail(cache, input);
+            case RetryKind.NoMatch:
+                return null;
+        }
+        var fwd = input with { Anchored = Anchored.Yes, Start = start.Offset };
+        var end = _core.Hybrid!.Forward.TrySearchFwd(cache.Hybrid!.Forward, fwd);
+        if (end.IsGaveUp) return _core.SearchNoFail(cache, input);
+        if (!end.IsMatch) throw new InvalidOperationException("a suffix and a reverse match imply a match");
+        return new Match(start.Offset, end.Offset);
+    }
+
+    public override bool IsMatch(Cache cache, in Input input)
+    {
+        if (input.Anchored == Anchored.Yes) return _core.IsMatch(cache, input);
+        return SearchStart(cache, input).Kind switch
+        {
+            RetryKind.Match => true,
+            RetryKind.NoMatch => false,
+            _ => _core.PikeVM.IsMatch(cache.PikeVM!, input),
+        };
+    }
+
+    public override bool SearchSlots(Cache cache, in Input input, Span<int> slots)
+    {
+        if (input.Anchored == Anchored.Yes) return _core.SearchSlots(cache, input, slots);
+        if (slots.Length <= 2)
+        {
+            if (Search(cache, input) is not { } m) return false;
+            CopyMatchToSlots(m, slots);
+            return true;
+        }
+        var start = SearchStart(cache, input);
+        return start.Kind switch
+        {
+            RetryKind.Quadratic => _core.SearchSlots(cache, input, slots),
+            RetryKind.GaveUp => _core.PikeVM.SearchSlots(cache.PikeVM!, input, slots),
+            RetryKind.NoMatch => false,
+            // Only the start is known; the PikeVM finds the end with the groups.
+            _ => _core.PikeVM.SearchSlots(cache.PikeVM!, input with { Start = start.Offset, Anchored = Anchored.Yes }, slots),
+        };
+    }
+}
+
+/// <summary>
+/// Every match contains one of some literals after a known prefix: find a
+/// literal, search backwards for the prefix to find where the match starts,
+/// then forwards from there for where it ends. Upstream's ReverseInner.
+/// </summary>
+internal sealed class ReverseInner : Strategy
+{
+    private readonly Core _core;
+    private readonly Prefilter _pre;
+    // The reverse DFA of the part of the pattern before the literals.
+    private readonly DFA _prefixRev;
+
+    private ReverseInner(Core core, Prefilter pre, DFA prefixRev)
+    {
+        _core = core;
+        _pre = pre;
+        _prefixRev = prefixRev;
+    }
+
+    public static ReverseInner? Create(Core core, Hir hir)
+    {
+        var info = core.Info;
+        if (!info.Config.AutoPrefilter || info.IsAlwaysAnchoredStart || core.Hybrid is null) return null;
+        // A fast prefix prefilter beats this; a slow one does not.
+        if (core.Pre is { IsFast: true }) return null;
+        if (InnerPrefilter.Create(hir) is not { } inner) return null;
+        if (!LiteralProofs.InnerHasNoEarlierMatch(inner.Prefix, inner.Literals)) return null;
+        try
+        {
+            var nfarev = Compiler.Compile(inner.Prefix, new CompilerConfig
+            {
+                Reverse = true,
+                WhichCaptures = WhichCaptures.None,
+                NfaSizeLimit = info.Config.NfaSizeLimit,
+            });
+            // Only searched in reverse, from a literal back to the start.
+            var dfa = DFA.Create(nfarev, new DfaConfig
+            {
+                MatchKind = MatchKind.All,
+                SpecializeStartStates = false,
+                CacheCapacity = info.Config.HybridCacheCapacity,
+                MinimumCacheClearCount = 3,
+                MinimumBytesPerState = 10,
+            });
+            return new ReverseInner(core, inner.Prefilter, dfa);
+        }
+        catch (BuildException)
+        {
+            return null;
+        }
+    }
+
+    public override string Name => "reverse inner";
+
+    public override GroupInfo GroupInfo => _core.GroupInfo;
+
+    public override Cache CreateCache() =>
+        new(_core.PikeVM.CreateCache(), _core.Hybrid!.CreateCache(), _prefixRev.CreateCache());
+
+    /// <summary>
+    /// The first match: at each literal candidate, a reverse search for the
+    /// prefix, then a forward search for the whole pattern from its start.
+    /// Neither may rescan what earlier ones did, which would make the search
+    /// quadratic; then the caller falls back to the core.
+    /// </summary>
+    private RetryKind SearchFull(Cache cache, in Input input, out Match match)
+    {
+        match = default;
+        var haystack = input.Haystack.Span;
+        int spanStart = input.Start, end = input.End, minMatchStart = 0, minPreStart = 0;
+        while (_pre.Find(haystack, spanStart, end) is { } lit)
+        {
+            if (lit.Start < minPreStart) return RetryKind.Quadratic;
+            var rev = input with { Anchored = Anchored.Yes, End = lit.Start };
+            var start = Limited.SearchRev(_prefixRev, cache.RevInner!, rev, minMatchStart);
+            if (start.Kind is RetryKind.Quadratic or RetryKind.GaveUp) return start.Kind;
+            if (start.Kind == RetryKind.Match)
+            {
+                var fwd = input with { Anchored = Anchored.Yes, Start = start.Offset };
+                var stop = Limited.SearchFwdStopAt(_core.Hybrid!.Forward, cache.Hybrid!.Forward, fwd);
+                if (stop.Kind == RetryKind.GaveUp) return RetryKind.GaveUp;
+                if (stop.Kind == RetryKind.Match)
+                {
+                    match = new Match(start.Offset, stop.Offset);
+                    return RetryKind.Match;
+                }
+                minPreStart = stop.Offset;
+                spanStart = lit.Start + 1;
+            }
+            if (spanStart >= end) break;
+            spanStart = lit.Start + 1;
+            minMatchStart = lit.End;
+        }
+        return RetryKind.NoMatch;
+    }
+
+    public override Match? Search(Cache cache, in Input input)
+    {
+        if (input.Anchored == Anchored.Yes) return _core.Search(cache, input);
+        return SearchFull(cache, input, out var m) switch
+        {
+            RetryKind.Quadratic => _core.Search(cache, input),
+            RetryKind.GaveUp => _core.SearchNoFail(cache, input),
+            RetryKind.NoMatch => null,
+            _ => m,
+        };
+    }
+
+    public override bool IsMatch(Cache cache, in Input input)
+    {
+        if (input.Anchored == Anchored.Yes) return _core.IsMatch(cache, input);
+        return SearchFull(cache, input, out _) switch
+        {
+            RetryKind.Match => true,
+            RetryKind.NoMatch => false,
+            _ => _core.PikeVM.IsMatch(cache.PikeVM!, input),
+        };
+    }
+
+    public override bool SearchSlots(Cache cache, in Input input, Span<int> slots)
+    {
+        if (input.Anchored == Anchored.Yes) return _core.SearchSlots(cache, input, slots);
+        if (slots.Length <= 2)
+        {
+            if (Search(cache, input) is not { } found) return false;
+            CopyMatchToSlots(found, slots);
+            return true;
+        }
+        return SearchFull(cache, input, out var m) switch
+        {
+            RetryKind.Quadratic => _core.SearchSlots(cache, input, slots),
+            RetryKind.GaveUp => _core.PikeVM.SearchSlots(cache.PikeVM!, input, slots),
+            RetryKind.NoMatch => false,
+            _ => _core.SearchSlotsInMatch(cache, input, m.Start, m.End, slots),
+        };
     }
 }

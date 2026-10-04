@@ -219,4 +219,126 @@ public static class LiteralTests
         Check.True(!Optimized(E("foobarfoo"), E("foo"), E(""), E("foozfoo"), E("foofoo")).IsFinite, "an empty literal matches everywhere");
         Check.True(!Optimized(E("foobarfoo"), I("foo"), E(" "), E("foofoo")).IsFinite, "a space is too common");
     }
+
+    // The suffix halves of the same upstream tests. Patterns whose suffixes
+    // are the same as their prefixes (single literals, classes, impossible
+    // classes, crazy repeats) are not repeated.
+
+    private static readonly Extractor SuffixExtractor = new() { Kind = ExtractKind.Suffix };
+
+    private static void Suffixes(Seq expected, string pattern, Extractor? extractor = null) =>
+        Check.Equal(expected, (extractor ?? SuffixExtractor).Extract(TestParser.Parse(pattern)), $"suffixes of /{pattern}/");
+
+    [Test]
+    public static void SuffixesOfLooksAndRepetitions()
+    {
+        Suffixes(Exact("ab"), @"a\zb");
+        Suffixes(Seq(I("Zb"), E("ab")), "^aZ*b");
+        Suffixes(Exact("a", ""), "a?");
+        Suffixes(Exact("", "a"), "a??");
+        Suffixes(Seq(I("a"), E("")), "a*");
+        Suffixes(Seq(E(""), I("a")), "a*?");
+        Suffixes(Seq(I("a")), "a+");
+        Suffixes(Seq(I("a")), "(a+)+");
+        Suffixes(Exact("ab"), "aZ{0}b");
+        Suffixes(Exact("aZb", "ab"), "aZ?b");
+        Suffixes(Exact("ab", "aZb"), "aZ??b");
+        Suffixes(Seq(I("Zb"), E("ab")), "aZ*b");
+        Suffixes(Seq(E("ab"), I("Zb")), "aZ*?b");
+        Suffixes(Seq(I("Zb")), "aZ+b");
+        Suffixes(Seq(I("Zb")), "aZ+?b");
+        Suffixes(Exact("aZZb"), "aZ{2}b");
+        Suffixes(Seq(I("ZZb")), "aZ{2,3}b");
+        Suffixes(Exact("abc", ""), "(abc)?");
+        Suffixes(Exact("", "abc"), "(abc)??");
+        Suffixes(Seq(I("ab"), E("b")), "a*b");
+        Suffixes(Seq(E("b"), I("ab")), "a*?b");
+        Suffixes(Seq(I("b")), "ab+");
+        Suffixes(Seq(I("b")), "a*b+");
+        Suffixes(Seq(I("bc"), I("ac"), E("c")), "a*b*c");
+        Suffixes(Seq(I("bc"), I("ac"), E("c")), "(a+)?(b+)?c");
+        Suffixes(Seq(I("bc"), I("ac"), E("c")), "(a+|)(b+|)c");
+        Suffixes(Seq(I("c"), I("b"), I("a"), E("")), "a*b*c*");
+        Suffixes(Seq(I("c")), "a*b*c+");
+        Suffixes(Seq(I("bc")), "a*b+c");
+        Suffixes(Seq(I("c"), I("b")), "a*b+c*");
+        Suffixes(Seq(I("b"), E("a")), "ab*");
+        Suffixes(Seq(I("bc"), E("ac")), "ab*c");
+        Suffixes(Seq(I("bc")), "ab+c");
+        Suffixes(Seq(I("zazb"), E("azb")), "z*azb");
+        Suffixes(Exact("aaa", "aab", "aba", "abb", "baa", "bab", "bba", "bbb"), "[ab]{3}");
+        Suffixes(Seq(I("aaa"), I("aab"), I("aba"), I("abb"), I("baa"), I("bab"), I("bba"), I("bbb")), "[ab]{3,4}");
+    }
+
+    [Test]
+    public static void SuffixesOfConcatenationsAndAlternations()
+    {
+        Suffixes(Exact("abcxyz"), "abc()xyz");
+        Suffixes(Exact("abcxyz"), "abc[a&&b]*xyz");
+        Suffixes(Exact(), "abc[a&&b]xyz");
+        Suffixes(Exact("abc", "mno", "xyz"), "abc|mno|xyz");
+        Suffixes(Seq(E("abc"), I("Zo"), E("mo"), E("xyz")), "abc|mZ*o|xyz");
+        Suffixes(Exact("abc", "xyz"), "abc|M[a&&b]N|xyz");
+        Suffixes(Exact("abc", "MN", "xyz"), "abc|M[a&&b]*N|xyz");
+        Suffixes(Exact("aaa", "aaaaa"), "(?:|aa)aaa");
+        Suffixes(Seq(I("aaa"), E(""), E("aa")), "(?:|aa)(?:aaa)*");
+        Suffixes(Seq(E(""), I("aaa"), E("aa")), "(?:|aa)(?:aaa)*?");
+        Suffixes(Seq(E("a"), I("b"), E("")), "a|b*");
+        Suffixes(Seq(E("a"), I("b")), "a|b+");
+        Suffixes(Seq(I("ab"), E("b"), E("c")), "a*b|c");
+        Suffixes(Seq(E("a"), E("b"), I("c"), E("")), "a|(?:b|c*)");
+        Suffixes(Seq(I("ac"), I("bc"), E("c"), I("ac"), I("abc"), E("c")), "(a|b)*c|(a|ab)*c");
+        Suffixes(Exact("abef", "abgh", "cdef", "cdgh"), "(ab|cd)(ef|gh)");
+        Suffixes(Exact("abefij", "abefkl", "abghij", "abghkl", "cdefij", "cdefkl", "cdghij", "cdghkl"), "(ab|cd)(ef|gh)(ij|kl)");
+        Suffixes(Seq(E("abab")), "(ab){2}");
+        Suffixes(Seq(I("abab")), "(ab){2,3}");
+        Suffixes(Seq(I("abab")), "(ab){2,}");
+    }
+
+    [Test]
+    public static void SuffixesOfAnything()
+    {
+        Suffixes(Infinite, ".");
+        Suffixes(Infinite, "[A-Z]+");
+        Suffixes(Exact(""), "[A-Z]{0}");
+        Suffixes(Infinite, "1[A-Z]");
+        Suffixes(Seq(I("2")), "1[A-Z]2");
+        Suffixes(Seq(I("123")), "[A-Z]+123");
+        Suffixes(Infinite, "[A-Z]+123[A-Z]+");
+        Suffixes(Infinite, "1|[A-Z]|3");
+        Suffixes(Infinite, "1|2[A-Z]|3");
+        Suffixes(Seq(E("1"), I("2"), E("3")), "1|[A-Z]2|3");
+        Suffixes(Seq(E("1"), I("3"), E("4")), "1|2[A-Z]3|4");
+        Suffixes(Seq(I("2")), "(?:|1)[A-Z]2");
+        Suffixes(Seq(I("z")), "a.z");
+        var small = new Extractor { Kind = ExtractKind.Suffix, LimitTotal = 10 };
+        Suffixes(Seq(I("aaa"), I("aab"), I("aba"), I("abb"), I("baa"), I("bab"), I("bba"), I("bbb")), "[ab]{3}{3}", small);
+        Suffixes(Infinite, "ab|cd|ef|gh|ij|kl|mn|op|qr|st|uv|wx|yz", small);
+        Suffixes(Seq(I("a")), ".a");
+        Suffixes(Infinite, "a.");
+        const string pat = "M[ou]'?am+[ae]r .*([AEae]l[- ])?[GKQ]h?[aeu]+([dtz][dhz]?)+af[iy]";
+        Suffixes(Seq(new[]
+        {
+            "ddafi", "ddafy", "dhafi", "dhafy", "dzafi", "dzafy", "dafi", "dafy", "tdafi", "tdafy", "thafi", "thafy",
+            "tzafi", "tzafy", "tafi", "tafy", "zdafi", "zdafy", "zhafi", "zhafy", "zzafi", "zzafy", "zafi", "zafy",
+        }.Select(I).ToArray()), pat);
+        Suffixes(Infinite, "fn is_([A-Z]+)|fn as_([A-Z]+)");
+        Suffixes(Seq(I("quux")), "foo[A-Z]+bar[A-Z]+quux");
+    }
+
+    private static Seq OptimizedSuffixes(params Literal[] lits)
+    {
+        var seq = Seq(lits);
+        seq.OptimizeForSuffixByPreference();
+        return seq;
+    }
+
+    [Test]
+    public static void OptimizeSuffixes()
+    {
+        Check.Equal(Seq(I("foobar")), OptimizedSuffixes(E("foobarfoobar"), E("foobar"), E("foobarzfoobar"), E("foobarfoobar")), "common suffix");
+        Check.Equal(Exact("abba", "akka", "abccba"), OptimizedSuffixes(E("abba"), E("akka"), E("abccba")), "few exact literals stay");
+        Check.Equal(Seq(E("sam"), E("samwise")), OptimizedSuffixes(E("sam"), E("samwise")), "no preference trie for suffixes");
+        Check.True(!OptimizedSuffixes(E("foobarfoo"), E("foo"), E(""), E("foozfoo"), E("foofoo")).IsFinite, "an empty literal");
+    }
 }

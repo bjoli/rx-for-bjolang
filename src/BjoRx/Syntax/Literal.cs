@@ -45,6 +45,14 @@ public sealed class Literal : IEquatable<Literal>
         Bytes = Bytes[..length];
     }
 
+    /// <summary>Cuts the literal to its last <paramref name="length"/> bytes, which makes it inexact.</summary>
+    public void KeepLastBytes(int length)
+    {
+        if (length >= Length) return;
+        MakeInexact();
+        Bytes = Bytes[^length..];
+    }
+
     /// <summary>A literal a prefilter would find everywhere: empty, or one very common byte.</summary>
     internal bool IsPoisonous => IsEmpty || (Length == 1 && Rank.Of(Bytes[0]) >= 250);
 
@@ -143,6 +151,35 @@ public sealed class Seq : IEquatable<Seq>
         Dedup();
     }
 
+    /// <summary>
+    /// <see cref="CrossForward"/> for suffixes: each exact literal is
+    /// prefixed by every literal of <paramref name="other"/>, which is left
+    /// empty. Ordered by <paramref name="other"/>'s literals first.
+    /// </summary>
+    public void CrossReverse(Seq other)
+    {
+        if (CrossPreamble(other) is not var (lits1, lits2)) return;
+        var crossed = new List<Literal>(lits1.Count * lits2.Count);
+        for (int i = 0; i < lits2.Count; i++)
+        {
+            var otherLit = lits2[i];
+            foreach (var selfLit in lits1)
+            {
+                if (!selfLit.IsExact)
+                {
+                    if (i == 0) crossed.Add(selfLit.Clone());
+                    continue;
+                }
+                var lit = Literal.Exact([.. otherLit.Bytes, .. selfLit.Bytes]);
+                if (!otherLit.IsExact) lit.MakeInexact();
+                crossed.Add(lit);
+            }
+        }
+        lits2.Clear();
+        _literals = crossed;
+        Dedup();
+    }
+
     private (List<Literal>, List<Literal>)? CrossPreamble(Seq other)
     {
         if (other._literals is not { } lits2)
@@ -199,6 +236,18 @@ public sealed class Seq : IEquatable<Seq>
         foreach (var lit in _literals) lit.KeepFirstBytes(length);
     }
 
+    public void KeepLastBytes(int length)
+    {
+        if (_literals is null) return;
+        foreach (var lit in _literals) lit.KeepLastBytes(length);
+    }
+
+    private void KeepBytes(bool prefix, int length)
+    {
+        if (prefix) KeepFirstBytes(length);
+        else KeepLastBytes(length);
+    }
+
     public bool IsFinite => _literals is not null;
 
     public bool IsEmpty => _literals is { Count: 0 };
@@ -234,12 +283,37 @@ public sealed class Seq : IEquatable<Seq>
         return first[..length];
     }
 
+    public byte[]? LongestCommonSuffix()
+    {
+        if (_literals is not { Count: > 0 } lits) return null;
+        var first = lits[0].Bytes;
+        int length = first.Length;
+        foreach (var lit in lits.Skip(1))
+        {
+            length = CommonSuffixLength(lit.Bytes, first.AsSpan(first.Length - length));
+            if (length == 0) return [];
+        }
+        return first[^length..];
+    }
+
+    private static int CommonSuffixLength(ReadOnlySpan<byte> a, ReadOnlySpan<byte> b)
+    {
+        int n = 0;
+        while (n < a.Length && n < b.Length && a[^(n + 1)] == b[^(n + 1)]) n++;
+        return n;
+    }
+
     /// <summary>
     /// Shrinks the sequence into a good prefilter for leftmost-first search,
     /// keeping it correct: every match still starts with one of the literals.
     /// The result is infinite when no good prefilter is left.
     /// </summary>
-    public void OptimizeForPrefixByPreference()
+    public void OptimizeForPrefixByPreference() => OptimizeByPreference(prefix: true);
+
+    /// <summary>The same for suffixes: every match still ends with one of the literals.</summary>
+    public void OptimizeForSuffixByPreference() => OptimizeByPreference(prefix: false);
+
+    private void OptimizeByPreference(bool prefix)
     {
         if (Count is not { } origLength) return;
         // An empty literal matches everywhere; nothing to search for.
@@ -250,13 +324,13 @@ public sealed class Seq : IEquatable<Seq>
         }
         // A literal after one it starts with can never be the leftmost-first
         // match there, since the earlier one is preferred.
-        PreferenceTrie.Minimize(_literals!, keepExact: true);
+        if (prefix) PreferenceTrie.Minimize(_literals!, keepExact: true);
 
-        if (LongestCommonPrefix() is { } fix)
+        if ((prefix ? LongestCommonPrefix() : LongestCommonSuffix()) is { } fix)
         {
             // A short common prefix of rare bytes is a better search than
             // the many literals: one memchr.
-            if (origLength > 1 && fix.Length is >= 1 and <= 3 && Rank.Of(fix[0]) < 200)
+            if (prefix && origLength > 1 && fix.Length is >= 1 and <= 3 && Rank.Of(fix[0]) < 200)
             {
                 KeepFirstBytes(1);
                 Dedup();
@@ -268,7 +342,7 @@ public sealed class Seq : IEquatable<Seq>
             bool useFix = fix.Length > 4 || (fix.Length > 1 && !isFast);
             if (useFix)
             {
-                KeepFirstBytes(fix.Length);
+                KeepBytes(prefix, fix.Length);
                 Dedup();
             }
         }
@@ -280,8 +354,8 @@ public sealed class Seq : IEquatable<Seq>
         foreach (var (keep, limit) in (ReadOnlySpan<(int, int)>)[(5, 10), (4, 10), (3, 64), (2, 64), (1, 10)])
         {
             if (Count is not { } length || length <= limit) break;
-            KeepFirstBytes(keep);
-            PreferenceTrie.Minimize(_literals!, keepExact: true);
+            KeepBytes(prefix, keep);
+            if (prefix) PreferenceTrie.Minimize(_literals!, keepExact: true);
         }
         if (_literals is { } finalLits && finalLits.Any(l => l.IsPoisonous)) MakeInfinite();
         if (exact is not null && (!IsFinite || MinLiteralLength is null or <= 2 || Count > 64))
@@ -393,11 +467,14 @@ internal sealed class PreferenceTrie
 
 /// <summary>
 /// Extracts the literals that every match of an <see cref="Hir"/> starts
-/// with, within limits that keep the sequence small. Upstream also extracts
-/// suffixes, for search strategies that are not ported.
+/// (or ends) with, within limits that keep the sequence small.
 /// </summary>
 public sealed class Extractor
 {
+    public ExtractKind Kind { get; init; } = ExtractKind.Prefix;
+
+    private bool IsPrefix => Kind == ExtractKind.Prefix;
+
     /// <summary>A class with more scalars than this is treated as matching anything.</summary>
     public int LimitClass { get; init; } = 10;
 
@@ -428,7 +505,8 @@ public sealed class Extractor
             case HirCapture cap:
                 return Extract(cap.Sub);
             case HirConcat concat:
-                return ExtractConcat(concat.Subs);
+                // Suffixes are built from the end.
+                return ExtractConcat(IsPrefix ? concat.Subs : concat.Subs.Reverse());
             case HirAlternation alt:
                 return ExtractAlternation(alt.Subs);
             default:
@@ -511,7 +589,8 @@ public sealed class Extractor
     private Seq Cross(Seq seq1, Seq seq2)
     {
         if (seq1.MaxCrossLength(seq2) > LimitTotal) seq2.MakeInfinite();
-        seq1.CrossForward(seq2);
+        if (IsPrefix) seq1.CrossForward(seq2);
+        else seq1.CrossReverse(seq2);
         EnforceLiteralLength(seq1);
         return seq1;
     }
@@ -521,8 +600,8 @@ public sealed class Extractor
         if (seq1.MaxUnionLength(seq2) > LimitTotal)
         {
             // Too many: shorter literals may merge into fewer.
-            seq1.KeepFirstBytes(4);
-            seq2.KeepFirstBytes(4);
+            KeepBytes(seq1, 4);
+            KeepBytes(seq2, 4);
             seq1.Dedup();
             seq2.Dedup();
             if (seq1.MaxUnionLength(seq2) > LimitTotal) seq2.MakeInfinite();
@@ -531,5 +610,17 @@ public sealed class Extractor
         return seq1;
     }
 
-    private void EnforceLiteralLength(Seq seq) => seq.KeepFirstBytes(LimitLiteralLength);
+    private void EnforceLiteralLength(Seq seq) => KeepBytes(seq, LimitLiteralLength);
+
+    private void KeepBytes(Seq seq, int length)
+    {
+        if (IsPrefix) seq.KeepFirstBytes(length);
+        else seq.KeepLastBytes(length);
+    }
+}
+
+public enum ExtractKind : byte
+{
+    Prefix,
+    Suffix,
 }

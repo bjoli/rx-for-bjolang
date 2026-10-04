@@ -107,6 +107,19 @@ public sealed class ScalarClass : IEquatable<ScalarClass>
 
     public bool IsEmpty => _ranges.Count == 0;
 
+    public bool Contains(uint scalar)
+    {
+        int lo = 0, hi = _ranges.Count - 1;
+        while (lo <= hi)
+        {
+            int mid = (lo + hi) >>> 1;
+            if (scalar < _ranges[mid].Start) hi = mid - 1;
+            else if (scalar > _ranges[mid].End) lo = mid + 1;
+            else return true;
+        }
+        return false;
+    }
+
     public void Push(ScalarRange range)
     {
         _ranges.Add(range);

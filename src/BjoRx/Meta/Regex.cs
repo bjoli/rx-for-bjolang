@@ -63,11 +63,14 @@ public sealed class Cache
 {
     internal readonly PikeVM.Cache? PikeVM;
     internal readonly HybridRegex.Cache? Hybrid;
+    // ReverseInner's reverse DFA for the part before the inner literal.
+    internal readonly Hybrid.DFA.Cache? RevInner;
 
-    internal Cache(PikeVM.Cache? pikeVM, HybridRegex.Cache? hybrid)
+    internal Cache(PikeVM.Cache? pikeVM, HybridRegex.Cache? hybrid, Hybrid.DFA.Cache? revInner = null)
     {
         PikeVM = pikeVM;
         Hybrid = hybrid;
+        RevInner = revInner;
     }
 }
 
