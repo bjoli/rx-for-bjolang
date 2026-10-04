@@ -168,8 +168,21 @@ public sealed class ByteClasses
 
     public byte Get(byte b) => _classOf[b];
 
+    /// <summary>The class of a byte (0–255) or of the end of input (256).</summary>
+    public int GetByUnit(int unit) => unit < 256 ? _classOf[unit] : Eoi;
+
+    /// <summary>The class of every byte, for search loops that index it directly.</summary>
+    internal byte[] Table => _classOf;
+
     /// <summary>The number of classes, counting the end-of-input class.</summary>
     public int AlphabetLength => _classOf[255] + 2;
+
+    /// <summary>
+    /// The log2 of the smallest power of two that is at least
+    /// <see cref="AlphabetLength"/>: a DFA state's row is that wide, so that a
+    /// state id can be a shifted index.
+    /// </summary>
+    public int Stride2 => System.Numerics.BitOperations.Log2(System.Numerics.BitOperations.RoundUpToPowerOf2((uint)AlphabetLength));
 
     /// <summary>The class number of the end-of-input pseudo byte.</summary>
     public int Eoi => _classOf[255] + 1;

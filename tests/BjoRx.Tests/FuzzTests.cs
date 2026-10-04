@@ -17,7 +17,7 @@ public static class FuzzTests
     // with one scalar of every UTF-8 length.
     private static readonly uint[] Alphabet = ['a', 'b', 'c', '\n', 0xE9, 0x2603, 0x1F600];
 
-    private sealed class Gen(Random rng)
+    internal sealed class Gen(Random rng)
     {
         private uint _nextGroup = 1;
 

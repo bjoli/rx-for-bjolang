@@ -11,6 +11,18 @@ public enum Anchored : byte
     Yes,
 }
 
+/// <summary>Which matches an automaton reports.</summary>
+public enum MatchKind : byte
+{
+    /// <summary>The match a backtracking engine would find first. What every search reports.</summary>
+    LeftmostFirst,
+    /// <summary>
+    /// Every match, with no preference among them. A reverse DFA uses it to
+    /// find the earliest start of a match whose end is already known.
+    /// </summary>
+    All,
+}
+
 /// <summary>
 /// What to search: a haystack, the span of it to look in, and how. Matching
 /// sees the whole haystack, so <c>\A</c> holds only at offset 0 and <c>\z</c>

@@ -59,3 +59,24 @@ public sealed class SparseSet
 
     public ReadOnlySpan<int> AsSpan() => _dense.AsSpan(0, Count);
 }
+
+/// <summary>Two sparse sets of the same capacity, for computing one from the other.</summary>
+public sealed class SparseSets(int capacity)
+{
+    public SparseSet Set1 { get; private set; } = new(capacity);
+    public SparseSet Set2 { get; private set; } = new(capacity);
+
+    public void Resize(int capacity)
+    {
+        Set1.Resize(capacity);
+        Set2.Resize(capacity);
+    }
+
+    public void Swap() => (Set1, Set2) = (Set2, Set1);
+
+    public void Clear()
+    {
+        Set1.Clear();
+        Set2.Clear();
+    }
+}
