@@ -17,7 +17,7 @@ public sealed partial class DFA
     public DfaResult TrySearchFwd(Cache cache, in Input input)
     {
         var result = FindFwd(cache, input);
-        if (!result.IsMatch || !Utf8Empty) return result;
+        if (!result.IsMatch || !_utf8Empty) return result;
         // An empty match may have landed inside a scalar; look on.
         if (input.Anchored == Anchored.Yes)
         {
@@ -40,7 +40,7 @@ public sealed partial class DFA
     public DfaResult TrySearchRev(Cache cache, in Input input)
     {
         var result = FindRev(cache, input);
-        if (!result.IsMatch || !Utf8Empty) return result;
+        if (!result.IsMatch || !_utf8Empty) return result;
         if (input.Anchored == Anchored.Yes)
         {
             return input.IsCharBoundary(result.Offset) ? result : DfaResult.NoMatch;
@@ -56,13 +56,29 @@ public sealed partial class DFA
         return result;
     }
 
-    /// <summary>Whether the regex can match empty in UTF-8 mode, where an empty match inside a scalar is skipped.</summary>
-    private bool Utf8Empty => Nfa.HasEmpty && Nfa.IsUtf8;
+
+    // The search loops use these rather than the Try methods: passing the
+    // current state by reference makes the JIT keep it in memory, which puts
+    // a store and a load on every byte's path. They return raw id 0 to give
+    // up; no state has it, since offset 0 is the unknown sentinel and tagged.
+
+    private LazyStateId Next(Cache cache, LazyStateId current, byte b) =>
+        TryNextState(cache, current, b, out var next) ? next : default;
+
+    private LazyStateId NextEoi(Cache cache, LazyStateId current) =>
+        TryNextEoiState(cache, current, out var next) ? next : default;
+
+    private LazyStateId StartForward(Cache cache, in Input input) =>
+        TryStartStateForward(cache, input, out var id) ? id : default;
+
+    private LazyStateId StartReverse(Cache cache, in Input input) =>
+        TryStartStateReverse(cache, input, out var id) ? id : default;
 
     private DfaResult FindFwd(Cache cache, in Input input)
     {
         if (input.IsDone) return DfaResult.NoMatch;
-        return input.Earliest ? FindFwdImp(cache, input, earliest: true) : FindFwdImp(cache, input, earliest: false);
+        var pre = input.Anchored == Anchored.Yes ? null : _prefilter;
+        return input.Earliest ? FindFwdImp(cache, input, pre, earliest: true) : FindFwdImp(cache, input, pre, earliest: false);
     }
 
     /// <summary>
@@ -70,23 +86,31 @@ public sealed partial class DFA
     /// fast path only for a tagged state (unknown, dead, match or start).
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    private DfaResult FindFwdImp(Cache cache, in Input input, bool earliest)
+    private DfaResult FindFwdImp(Cache cache, in Input input, Prefilter? pre, bool earliest)
     {
+        bool universalStart = _universalStart;
         int mat = -1;
-        if (!TryStartStateForward(cache, input, out var sid)) return DfaResult.GaveUp(input.Start);
+        var sid = StartForward(cache, input);
+        if (sid.Raw == 0) return DfaResult.GaveUp(input.Start);
         var haystack = input.Haystack.Span;
         int end = input.End;
         int at = input.Start;
-        ref byte classes = ref MemoryMarshal.GetArrayDataReference(Classes.Table);
+        ref byte classes = ref MemoryMarshal.GetArrayDataReference(_classTable);
         ref byte hay = ref MemoryMarshal.GetReference(haystack);
 
+        if (pre is not null)
+        {
+            if (pre.Find(haystack, at, end) is not { } span) return DfaResult.NoMatch;
+            at = span.Start;
+            if (!universalStart && (sid = StartForward(cache, input with { Start = at })).Raw == 0) return DfaResult.GaveUp(at);
+        }
         cache.SearchStart(at);
         while (at < end)
         {
             if (sid.IsTagged)
             {
                 cache.SearchUpdate(at);
-                if (!TryNextState(cache, sid, haystack[at], out sid)) return DfaResult.GaveUp(at);
+                if ((sid = Next(cache, sid, haystack[at])).Raw == 0) return DfaResult.GaveUp(at);
             }
             else
             {
@@ -96,24 +120,24 @@ public sealed partial class DFA
                 var prev = sid;
                 while (at < end)
                 {
-                    prev = Unsafe.Add(ref trans, (int)sid.Raw + Unsafe.Add(ref classes, Unsafe.Add(ref hay, at)));
+                    prev = Unsafe.Add(ref trans, (nuint)(sid.Raw + Unsafe.Add(ref classes, Unsafe.Add(ref hay, at))));
                     if (prev.IsTagged || at + 3 >= end)
                     {
                         (prev, sid) = (sid, prev);
                         break;
                     }
                     at++;
-                    sid = Unsafe.Add(ref trans, (int)prev.Raw + Unsafe.Add(ref classes, Unsafe.Add(ref hay, at)));
+                    sid = Unsafe.Add(ref trans, (nuint)(prev.Raw + Unsafe.Add(ref classes, Unsafe.Add(ref hay, at))));
                     if (sid.IsTagged) break;
                     at++;
-                    prev = Unsafe.Add(ref trans, (int)sid.Raw + Unsafe.Add(ref classes, Unsafe.Add(ref hay, at)));
+                    prev = Unsafe.Add(ref trans, (nuint)(sid.Raw + Unsafe.Add(ref classes, Unsafe.Add(ref hay, at))));
                     if (prev.IsTagged)
                     {
                         (prev, sid) = (sid, prev);
                         break;
                     }
                     at++;
-                    sid = Unsafe.Add(ref trans, (int)prev.Raw + Unsafe.Add(ref classes, Unsafe.Add(ref hay, at)));
+                    sid = Unsafe.Add(ref trans, (nuint)(prev.Raw + Unsafe.Add(ref classes, Unsafe.Add(ref hay, at))));
                     if (sid.IsTagged) break;
                     at++;
                 }
@@ -122,14 +146,33 @@ public sealed partial class DFA
                 if (sid.IsUnknown)
                 {
                     cache.SearchUpdate(at);
-                    if (!TryNextState(cache, prev, haystack[at], out sid)) return DfaResult.GaveUp(at);
+                    if ((sid = Next(cache, prev, haystack[at])).Raw == 0) return DfaResult.GaveUp(at);
                 }
             }
             if (sid.IsTagged)
             {
                 if (sid.IsStart)
                 {
-                    // A prefilter would skip ahead from here.
+                    // Back at the start: nothing is under way, so the
+                    // prefilter can skip to the next candidate. Not with a
+                    // match pending, which the skip would lose.
+                    if (pre is not null && mat < 0)
+                    {
+                        if (pre.Find(haystack, at, end) is not { } span)
+                        {
+                            cache.SearchFinish(end);
+                            return DfaResult.NoMatch;
+                        }
+                        if (span.Start > at)
+                        {
+                            at = span.Start;
+                            if (!universalStart && (sid = StartForward(cache, input with { Start = at })).Raw == 0)
+                            {
+                                return DfaResult.GaveUp(at);
+                            }
+                            continue;
+                        }
+                    }
                 }
                 else if (sid.IsMatch)
                 {
@@ -155,9 +198,9 @@ public sealed partial class DFA
         // the byte after the span if there is one, else on end of input.
         if (end < haystack.Length)
         {
-            if (!TryNextState(cache, sid, haystack[end], out sid)) return DfaResult.GaveUp(end);
+            if ((sid = Next(cache, sid, haystack[end])).Raw == 0) return DfaResult.GaveUp(end);
         }
-        else if (!TryNextEoiState(cache, sid, out sid))
+        else if ((sid = NextEoi(cache, sid)).Raw == 0)
         {
             return DfaResult.GaveUp(haystack.Length);
         }
@@ -177,12 +220,13 @@ public sealed partial class DFA
     private DfaResult FindRevImp(Cache cache, in Input input, bool earliest)
     {
         int mat = -1;
-        if (!TryStartStateReverse(cache, input, out var sid)) return DfaResult.GaveUp(input.End);
+        var sid = StartReverse(cache, input);
+        if (sid.Raw == 0) return DfaResult.GaveUp(input.End);
         var haystack = input.Haystack.Span;
         int start = input.Start;
         if (start == input.End) return EoiRev(cache, haystack, start, sid, mat);
         int at = input.End - 1;
-        ref byte classes = ref MemoryMarshal.GetArrayDataReference(Classes.Table);
+        ref byte classes = ref MemoryMarshal.GetArrayDataReference(_classTable);
         ref byte hay = ref MemoryMarshal.GetReference(haystack);
 
         cache.SearchStart(at);
@@ -191,7 +235,7 @@ public sealed partial class DFA
             if (sid.IsTagged)
             {
                 cache.SearchUpdate(at);
-                if (!TryNextState(cache, sid, haystack[at], out sid)) return DfaResult.GaveUp(at);
+                if ((sid = Next(cache, sid, haystack[at])).Raw == 0) return DfaResult.GaveUp(at);
             }
             else
             {
@@ -199,31 +243,31 @@ public sealed partial class DFA
                 var prev = sid;
                 while (at >= start)
                 {
-                    prev = Unsafe.Add(ref trans, (int)sid.Raw + Unsafe.Add(ref classes, Unsafe.Add(ref hay, at)));
+                    prev = Unsafe.Add(ref trans, (nuint)(sid.Raw + Unsafe.Add(ref classes, Unsafe.Add(ref hay, at))));
                     if (prev.IsTagged || at <= start + 3)
                     {
                         (prev, sid) = (sid, prev);
                         break;
                     }
                     at--;
-                    sid = Unsafe.Add(ref trans, (int)prev.Raw + Unsafe.Add(ref classes, Unsafe.Add(ref hay, at)));
+                    sid = Unsafe.Add(ref trans, (nuint)(prev.Raw + Unsafe.Add(ref classes, Unsafe.Add(ref hay, at))));
                     if (sid.IsTagged) break;
                     at--;
-                    prev = Unsafe.Add(ref trans, (int)sid.Raw + Unsafe.Add(ref classes, Unsafe.Add(ref hay, at)));
+                    prev = Unsafe.Add(ref trans, (nuint)(sid.Raw + Unsafe.Add(ref classes, Unsafe.Add(ref hay, at))));
                     if (prev.IsTagged)
                     {
                         (prev, sid) = (sid, prev);
                         break;
                     }
                     at--;
-                    sid = Unsafe.Add(ref trans, (int)prev.Raw + Unsafe.Add(ref classes, Unsafe.Add(ref hay, at)));
+                    sid = Unsafe.Add(ref trans, (nuint)(prev.Raw + Unsafe.Add(ref classes, Unsafe.Add(ref hay, at))));
                     if (sid.IsTagged) break;
                     at--;
                 }
                 if (sid.IsUnknown)
                 {
                     cache.SearchUpdate(at);
-                    if (!TryNextState(cache, prev, haystack[at], out sid)) return DfaResult.GaveUp(at);
+                    if ((sid = Next(cache, prev, haystack[at])).Raw == 0) return DfaResult.GaveUp(at);
                 }
             }
             if (sid.IsTagged)
@@ -258,9 +302,9 @@ public sealed partial class DFA
     {
         if (start > 0)
         {
-            if (!TryNextState(cache, sid, haystack[start - 1], out sid)) return DfaResult.GaveUp(start);
+            if ((sid = Next(cache, sid, haystack[start - 1])).Raw == 0) return DfaResult.GaveUp(start);
         }
-        else if (!TryNextEoiState(cache, sid, out sid))
+        else if ((sid = NextEoi(cache, sid)).Raw == 0)
         {
             return DfaResult.GaveUp(start);
         }

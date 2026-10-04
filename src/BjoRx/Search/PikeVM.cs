@@ -95,26 +95,37 @@ public sealed class PikeVM
     public bool SearchSlots(Cache cache, Input input, Span<int> slots)
     {
         if (slots.Length < 2) throw new ArgumentException("room for at least group 0's two slots is needed", nameof(slots));
-        int[] buffer = slots.ToArray();
+        // Slots past the NFA's groups never get written.
+        slots.Fill(-1);
+        var buffer = cache.SlotBuffer.AsSpan(0, Math.Min(slots.Length, cache.SlotBuffer.Length));
         int? end = SearchImp(cache, input, buffer);
+        // An empty match may have landed inside a scalar; look on, one byte
+        // further each time. An anchored search cannot move on.
         if (end is not null && Utf8Empty)
         {
-            end = Empty.SkipSplitsForward(input, end.Value, i => SearchImp(cache, i, buffer));
+            if (input.Anchored == Anchored.Yes)
+            {
+                if (!input.IsCharBoundary(end.Value)) end = null;
+            }
+            else
+            {
+                while (end is { } e && !input.IsCharBoundary(e))
+                {
+                    input = input with { Start = input.Start + 1 };
+                    end = SearchImp(cache, input, buffer);
+                }
+            }
         }
-        if (end is null)
-        {
-            slots.Fill(-1);
-            return false;
-        }
+        if (end is null) return false;
         buffer.CopyTo(slots);
         return true;
     }
 
     /// <summary>The end of the match, with its slots written to <paramref name="slots"/>.</summary>
-    private int? SearchImp(Cache cache, Input input, int[] slots)
+    private int? SearchImp(Cache cache, Input input, Span<int> slots)
     {
         cache.SetupSearch(slots.Length);
-        Array.Fill(slots, -1);
+        slots.Fill(-1);
         if (input.IsDone) return null;
 
         var haystack = input.Haystack.Span;
@@ -168,7 +179,7 @@ public sealed class PikeVM
     /// match state, since everything after it is less preferred, and copies
     /// that thread's slots out.
     /// </summary>
-    private bool Nexts(Stack<Frame> stack, ActiveStates curr, ActiveStates next, ReadOnlySpan<byte> haystack, int at, int[] slots)
+    private bool Nexts(Stack<Frame> stack, ActiveStates curr, ActiveStates next, ReadOnlySpan<byte> haystack, int at, Span<int> slots)
     {
         var set = curr.Set;
         for (int i = 0; i < set.Count; i++)
@@ -341,6 +352,9 @@ public sealed class PikeVM
         internal readonly Stack<Frame> Stack = new();
         internal ActiveStates Curr;
         internal ActiveStates Next;
+        // Where a search writes its slots, so that a failed retry after an
+        // empty match inside a scalar does not clobber the caller's.
+        internal readonly int[] SlotBuffer;
 
         internal Cache(PikeVM vm)
         {
@@ -348,6 +362,7 @@ public sealed class PikeVM
             int slots = vm.Nfa.GroupInfo.SlotLength;
             Curr = new ActiveStates(states, slots);
             Next = new ActiveStates(states, slots);
+            SlotBuffer = new int[slots];
         }
 
         internal void SetupSearch(int slotLength)

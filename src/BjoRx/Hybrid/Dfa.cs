@@ -14,10 +14,19 @@ public sealed record DfaConfig
     public bool ByteClasses { get; init; } = true;
 
     /// <summary>
-    /// Tag start states, so that a search notices when it is back at the
-    /// start and can let a prefilter skip ahead. Costs a little speed otherwise.
+    /// Searched for to skip ahead to where a match can start, in an
+    /// unanchored forward search. A reverse DFA ignores it.
     /// </summary>
-    public bool SpecializeStartStates { get; init; }
+    public Prefilter? Prefilter { get; init; }
+
+    /// <summary>
+    /// Tag start states, so that a search notices when it is back at the
+    /// start and can let the prefilter skip ahead. Costs a little speed
+    /// otherwise. By default, on when there is a prefilter.
+    /// </summary>
+    public bool? SpecializeStartStates { get; init; }
+
+    internal bool TagStartStates => SpecializeStartStates ?? Prefilter is not null;
 
     /// <summary>The memory, in approximate bytes, that a cache may use before it is cleared.</summary>
     public long CacheCapacity { get; init; } = 2 * (1 << 20);
@@ -109,6 +118,12 @@ public sealed partial class DFA
     private readonly int _stride2;
     private readonly long _cacheCapacity;
 
+    // Read on every search, so kept at hand rather than recomputed.
+    private readonly byte[] _classTable;
+    private readonly bool _universalStart;
+    private readonly bool _utf8Empty;
+    private readonly Prefilter? _prefilter;
+
     private DFA(NFA nfa, DfaConfig config, ByteClasses classes, long cacheCapacity)
     {
         Nfa = nfa;
@@ -116,6 +131,14 @@ public sealed partial class DFA
         Classes = classes;
         _stride2 = classes.Stride2;
         _cacheCapacity = cacheCapacity;
+        _classTable = classes.Table;
+        // Without assertions before the first byte, the start state is the
+        // same everywhere, so skipping ahead needs no new start state.
+        _universalStart = nfa.LookSetPrefixAny.IsEmpty;
+        // A regex that can match empty may report an empty match inside a
+        // scalar, which a search then skips.
+        _utf8Empty = nfa.HasEmpty && nfa.IsUtf8;
+        _prefilter = config.Prefilter;
     }
 
     /// <summary>Builds a lazy DFA for <paramref name="nfa"/>; a reverse NFA gives a reverse DFA.</summary>
@@ -145,7 +168,7 @@ public sealed partial class DFA
         ClearCache(cache);
         cache.Sparses.Resize(Nfa.States.Length);
         cache.ClearCount = 0;
-        cache.Progress = null;
+        cache.InProgress = false;
     }
 
     private int Stride => 1 << _stride2;
@@ -229,7 +252,7 @@ public sealed partial class DFA
         Determinize.EpsilonClosure(Nfa, nfaStart, builder.LookHave, cache.Stack, cache.Sparses.Set1);
         builder.StartNfa();
         Determinize.AddNfaStates(Nfa, cache.Sparses.Set1, builder);
-        if (!AddBuilderState(cache, builder, Config.SpecializeStartStates, out id)) return false;
+        if (!AddBuilderState(cache, builder, Config.TagStartStates, out id)) return false;
         cache.Starts[StartIndex(anchored, start)] = id;
         return true;
     }
@@ -298,7 +321,7 @@ public sealed partial class DFA
         cache.MemoryUsageState = 0;
         cache.ClearCount++;
         cache.BytesSearched = 0;
-        if (cache.Progress is { } p) cache.Progress = p with { Start = p.At };
+        cache.ProgressStart = cache.ProgressAt;
         InitCache(cache);
         if (cache.Saver is { Which: StateSaver.Kind.ToSave, State: { } saved })
         {
@@ -363,12 +386,6 @@ public sealed partial class DFA
         public enum Kind : byte { None, ToSave, Saved }
     }
 
-    /// <summary>Where the search in progress started, and how far it has got, for the give-up heuristic.</summary>
-    internal readonly record struct SearchProgress(int Start, int At)
-    {
-        public int Length => Math.Abs(At - Start);
-    }
-
     /// <summary>
     /// A lazy DFA's states and transitions, built up across searches. One per
     /// thread; a search mutates it.
@@ -387,7 +404,11 @@ public sealed partial class DFA
         internal StateSaver Saver;
         internal long MemoryUsageState;
         internal long BytesSearched;
-        internal SearchProgress? Progress;
+        // The search in progress: where it started (or the cache was last
+        // cleared), and how far it has got.
+        internal bool InProgress;
+        internal int ProgressStart;
+        internal int ProgressAt;
 
         /// <summary>How many times the cache was cleared since it was made or reset.</summary>
         public int ClearCount { get; internal set; }
@@ -401,19 +422,23 @@ public sealed partial class DFA
 
         internal void SearchStart(int at)
         {
-            if (Progress is { } p) BytesSearched += p.Length;
-            Progress = new SearchProgress(at, at);
+            if (InProgress) BytesSearched += ProgressLength;
+            InProgress = true;
+            ProgressStart = at;
+            ProgressAt = at;
         }
 
-        internal void SearchUpdate(int at) => Progress = Progress!.Value with { At = at };
+        internal void SearchUpdate(int at) => ProgressAt = at;
 
         internal void SearchFinish(int at)
         {
-            BytesSearched += Math.Abs(at - Progress!.Value.Start);
-            Progress = null;
+            BytesSearched += Math.Abs(at - ProgressStart);
+            InProgress = false;
         }
 
-        internal long SearchTotalLength => BytesSearched + (Progress?.Length ?? 0);
+        private int ProgressLength => Math.Abs(ProgressAt - ProgressStart);
+
+        internal long SearchTotalLength => BytesSearched + (InProgress ? ProgressLength : 0);
 
         /// <summary>The memory the cache uses, by upstream's accounting.</summary>
         public long MemoryUsage =>

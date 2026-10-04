@@ -37,7 +37,7 @@ public sealed class Regex
 
     public static Regex FromNfas(NFA forward, NFA reverse, DfaConfig config) =>
         new(DFA.Create(forward, config),
-            DFA.Create(reverse, config with { MatchKind = MatchKind.All, SpecializeStartStates = false }));
+            DFA.Create(reverse, config with { MatchKind = MatchKind.All, Prefilter = null, SpecializeStartStates = false }));
 
     public Cache CreateCache() => new(this);
 

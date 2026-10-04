@@ -1,4 +1,7 @@
 <Solution>
+  <Folder Name="/bench/">
+    <Project Path="bench/BjoRx.Bench/BjoRx.Bench.csproj" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/BjoRx/BjoRx.csproj" />
   </Folder>

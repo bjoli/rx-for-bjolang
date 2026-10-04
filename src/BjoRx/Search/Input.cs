@@ -137,9 +137,9 @@ public sealed class Captures
 /// would be found again forever, so when a search finds an empty match at the
 /// previous match's end, it is discarded and the search tried again one
 /// <i>byte</i> later. An engine never reports an empty match that splits a
-/// scalar (see <see cref="Empty.SkipSplitsForward"/>), so that byte step
-/// cannot surface one; an anchored search, which cannot move on, then just
-/// ends.
+/// scalar (it searches on one byte further, as upstream's util/empty.rs
+/// does), so that byte step cannot surface one; an anchored search, which
+/// cannot move on, then just ends.
 /// </para>
 /// </remarks>
 public sealed class Searcher
@@ -171,32 +171,5 @@ public sealed class Searcher
         _input = _input with { Start = found.End };
         _lastMatchEnd = found.End;
         return found;
-    }
-}
-
-/// <summary>Keeps empty matches from splitting a scalar in UTF-8 mode.</summary>
-public static class Empty
-{
-    /// <summary>
-    /// The end of a match found by a forward search, if it does not split a
-    /// scalar, or else the end of the next match that does not, searching on
-    /// with <paramref name="find"/> one byte further each time. Only an empty
-    /// match can end inside a scalar when the regex matches valid UTF-8 only,
-    /// so this only runs for regexes that can match empty. An anchored search
-    /// cannot move on, and has no match then.
-    /// </summary>
-    public static int? SkipSplitsForward(Input input, int matchOffset, Func<Input, int?> find)
-    {
-        if (input.Anchored == Anchored.Yes)
-        {
-            return input.IsCharBoundary(matchOffset) ? matchOffset : null;
-        }
-        while (!input.IsCharBoundary(matchOffset))
-        {
-            input = input with { Start = input.Start + 1 };
-            if (find(input) is not { } next) return null;
-            matchOffset = next;
-        }
-        return matchOffset;
     }
 }

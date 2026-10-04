@@ -39,11 +39,11 @@ public static class HybridTests
         return all;
     }
 
-    private static void RunUpstream(string name, DfaConfig config, bool expectNoClears = false)
+    private static void RunUpstream(string name, DfaConfig config, bool expectNoClears = false, bool prefilter = false)
     {
         var loaded = UpstreamTests.Load();
         var failures = new List<string>();
-        int gaveUp = 0, ran = 0;
+        int gaveUp = 0, ran = 0, prefiltered = 0;
         foreach (var t in loaded.Accepted)
         {
             if (t.FullName == TooBigForDefaultCache && !config.SkipCacheCapacityCheck) continue;
@@ -52,7 +52,9 @@ public static class HybridTests
             HybridRegex re;
             try
             {
-                re = HybridRegex.Create(t.Hir, config);
+                var pre = prefilter ? Prefilter.FromHirPrefix(t.Hir) : null;
+                if (pre is not null) prefiltered++;
+                re = HybridRegex.Create(t.Hir, config with { Prefilter = pre });
                 var vm = new PikeVM(Compiler.Compile(t.Hir));
                 var cache = re.CreateCache();
                 var input = new Input(t.Haystack) { Anchored = t.Anchored ? Anchored.Yes : Anchored.No };
@@ -78,12 +80,34 @@ public static class HybridTests
         }
         foreach (var f in failures.Take(40)) Console.WriteLine("    " + f);
         Console.WriteLine($"  lazy DFA ({name}): {ran - failures.Count}/{ran} upstream tests pass" +
-                          (gaveUp > 0 ? $", {gaveUp} searches handed to the PikeVM" : ""));
+                          (gaveUp > 0 ? $", {gaveUp} searches handed to the PikeVM" : "") +
+                          (prefilter ? $", {prefiltered} with a prefilter" : ""));
         Check.Equal(0, failures.Count, "upstream failures");
     }
 
     [Test]
     public static void UpstreamTestsPass() => RunUpstream("default", new DfaConfig(), expectNoClears: true);
+
+    [Test]
+    public static void UpstreamTestsPassWithPrefilters() => RunUpstream("prefilters", new DfaConfig(), prefilter: true);
+
+    [Test]
+    public static void UpstreamTestsPassWithPrefiltersAndATinyCache() => RunUpstream("prefilters, tiny cache", Tiny, prefilter: true);
+
+    [Test]
+    public static void PrefilterDoesNotSkipAPendingMatch()
+    {
+        // Upstream's prefilter_does_not_skip_pending_match: the anchored start
+        // state, cached first, is reached again in an unanchored search
+        // after a match, where skipping ahead would lose that match.
+        var hir = TestParser.Parse("(?:ab|c)*c");
+        var nfa = Compiler.Compile(hir, new CompilerConfig { WhichCaptures = WhichCaptures.None });
+        var dfa = DFA.Create(nfa, new DfaConfig { Prefilter = Prefilter.Create([Utf8("ab"), Utf8("c")]) });
+        var cache = dfa.CreateCache();
+        var hay = Utf8("cabac");
+        Check.Equal(DfaResult.Found(1), dfa.TrySearchFwd(cache, new Input(hay) { Anchored = Anchored.Yes }), "anchored");
+        Check.Equal(DfaResult.Found(1), dfa.TrySearchFwd(cache, new Input(hay)), "unanchored");
+    }
 
     [Test]
     public static void UpstreamTestsPassWithoutByteClasses() => RunUpstream("no byte classes", new DfaConfig { ByteClasses = false });
@@ -223,13 +247,19 @@ public static class HybridTests
         int cases = int.TryParse(Environment.GetEnvironmentVariable("BJORX_FUZZ_CASES"), out int n) ? n : 20_000;
         var rng = new Random(5);
         var failures = new List<string>();
-        int compared = 0, gaveUp = 0, searches = 0;
+        int compared = 0, gaveUp = 0, searches = 0, prefiltered = 0;
         DfaConfig[] configs = [new DfaConfig(), Tiny, Tiny with { MinimumCacheClearCount = 2, MinimumBytesPerState = 1 }];
         for (int k = 0; k < cases && failures.Count < 10; k++)
         {
             var gen = new FuzzTests.Gen(rng);
             var hir = gen.Pattern(rng.Next(1, 5));
             var config = configs[k % configs.Length];
+            if (k % 2 == 0)
+            {
+                var pre = Prefilter.FromHirPrefix(hir);
+                if (pre is not null) prefiltered++;
+                config = config with { Prefilter = pre };
+            }
             HybridRegex re;
             PikeVM vm;
             try
@@ -263,7 +293,8 @@ public static class HybridTests
             }
         }
         foreach (var f in failures) Console.WriteLine("    " + f);
-        Console.WriteLine($"  lazy DFA fuzz: {compared} haystacks compared with the PikeVM; of about {searches} searches, {gaveUp} handed over");
+        Console.WriteLine($"  lazy DFA fuzz: {compared} haystacks compared with the PikeVM; of about {searches} searches, {gaveUp} handed over; " +
+                          $"{prefiltered} patterns with a prefilter");
         Check.Equal(0, failures.Count, "disagreements");
     }
 }

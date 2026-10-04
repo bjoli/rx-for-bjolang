@@ -48,6 +48,14 @@ public sealed class DotNetOracle
             TimeSpan.FromMilliseconds(200));
     }
 
+    /// <summary>The .NET pattern for <paramref name="hir"/>, as rx.bjo writes it.</summary>
+    public static string ToDotNetPattern(Hir hir)
+    {
+        var sb = new StringBuilder();
+        Emit(hir, sb);
+        return sb.ToString();
+    }
+
     private static uint MaxCaptureIndex(Hir hir) => hir switch
     {
         HirCapture c => Math.Max(c.Index, MaxCaptureIndex(c.Sub)),

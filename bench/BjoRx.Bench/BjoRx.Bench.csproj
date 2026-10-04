@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>BjoRx.Bench</RootNamespace>
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BjoRx\BjoRx.csproj" />
+    <!-- For the test pattern parser and the .NET pattern writer. -->
+    <ProjectReference Include="..\..\tests\BjoRx.Tests\BjoRx.Tests.csproj" />
+  </ItemGroup>
+
+</Project>
