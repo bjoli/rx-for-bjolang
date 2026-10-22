@@ -29,6 +29,7 @@ namespace BjoRx.Search;
 /// first level where a match can end, since longer distances need not exist.
 /// </para>
 /// </remarks>
+[NonUserCode]
 public sealed class FixedDistanceSets : Prefilter
 {
     /// <summary>How far from a match's start bytes are collected.</summary>
@@ -51,14 +52,15 @@ public sealed class FixedDistanceSets : Prefilter
         _primaryBytes = primary.Bytes;
         _primaryCount = primary.Count;
         _primaryScore = primary.Score;
-        _primary = SearchValues.Create(Enumerable.Range(0, 256).Where(b => primary.Bytes[b]).Select(b => (byte)b).ToArray());
-        _checks = checks.Select(c => (c.Distance, c.Bytes)).ToArray();
+        _primary = SearchValues.Create(Enumerable.Range(0, 256).Where([NonUserCode] (b) => primary.Bytes[b]).Select([NonUserCode] (b) => (byte)b).ToArray());
+        _checks = checks.Select([NonUserCode] (c) => (c.Distance, c.Bytes)).ToArray();
     }
 
     /// <summary>The bytes that can be at <see cref="Distance"/> from a match's start.</summary>
+    [NonUserCode]
     public sealed record ByteSetAt(int Distance, bool[] Bytes)
     {
-        public int Count => Bytes.Count(b => b);
+        public int Count => Bytes.Count([NonUserCode] (b) => b);
 
         /// <summary>
         /// How often the set's bytes occur, estimated from their ranks as
@@ -184,7 +186,7 @@ public sealed class FixedDistanceSets : Prefilter
     /// </summary>
     public static FixedDistanceSets? FromNfa(NFA nfa)
     {
-        var sets = Analyze(nfa).Where(s => s.Count < 256).OrderBy(s => s.Score).ThenBy(s => s.Distance).ToList();
+        var sets = Analyze(nfa).Where([NonUserCode] (s) => s.Count < 256).OrderBy([NonUserCode] (s) => s.Score).ThenBy([NonUserCode] (s) => s.Distance).ToList();
         if (sets.Count == 0 || sets[0].Score >= UsefulScore) return null;
         // Up to two more sets, the rarest, are checked at each candidate.
         return new FixedDistanceSets(sets[0], sets.Skip(1).Take(2).ToArray());
@@ -227,5 +229,5 @@ public sealed class FixedDistanceSets : Prefilter
     }
 
     public override string ToString() =>
-        $"{Name} {new ByteSetAt(_primaryDistance, _primaryBytes)} then {string.Join(", ", _checks.Select(c => new ByteSetAt(c.Distance, c.Bytes)))}";
+        $"{Name} {new ByteSetAt(_primaryDistance, _primaryBytes)} then {string.Join(", ", _checks.Select([NonUserCode] (c) => new ByteSetAt(c.Distance, c.Bytes)))}";
 }

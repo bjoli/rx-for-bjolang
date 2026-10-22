@@ -9,6 +9,7 @@ using HybridRegex = BjoRx.Hybrid.Regex;
 
 namespace BjoRx.Meta;
 
+[NonUserCode]
 public sealed record RegexConfig
 {
     /// <summary>Search for the literals a match starts with to skip ahead.</summary>
@@ -25,6 +26,7 @@ public sealed record RegexConfig
 }
 
 /// <summary>What the strategies need to know about the pattern.</summary>
+[NonUserCode]
 internal sealed class RegexInfo(RegexConfig config, Properties props)
 {
     public RegexConfig Config => config;
@@ -59,6 +61,7 @@ internal sealed class RegexInfo(RegexConfig config, Properties props)
 /// The working memory of a <see cref="Regex"/>'s engines. One per thread at
 /// a time; <see cref="Regex"/>'s methods without a cache take one from a pool.
 /// </summary>
+[NonUserCode]
 public sealed class Cache
 {
     internal readonly PikeVM.Cache? PikeVM;
@@ -79,6 +82,7 @@ public sealed class Cache
 /// gets back without synchronization beyond a compare-and-swap; other
 /// threads, and the owner while its cache is out, share a pool.
 /// </summary>
+[NonUserCode]
 internal sealed class CachePool(Func<Cache> create)
 {
     // Managed thread ids are positive.
@@ -127,6 +131,7 @@ internal sealed class CachePool(Func<Cache> create)
 /// Methods that take a <see cref="Cache"/> use it; the others take one from
 /// a pool, so a regex can be shared between threads.
 /// </remarks>
+[NonUserCode]
 public sealed class Regex
 {
     private readonly RegexInfo _info;
@@ -224,7 +229,7 @@ public sealed class Regex
         try
         {
             var searcher = new Searcher(input);
-            while (searcher.Advance(i => Find(cache, i)) is { } m) yield return m;
+            while (searcher.Advance([NonUserCode] (i) => Find(cache, i)) is { } m) yield return m;
         }
         finally
         {
@@ -240,7 +245,7 @@ public sealed class Regex
         {
             var searcher = new Searcher(input);
             var caps = CreateCaptures();
-            while (searcher.Advance(i => Captures(cache, i, caps) ? caps.Overall : null) is not null)
+            while (searcher.Advance([NonUserCode] (i) => Captures(cache, i, caps) ? caps.Overall : null) is not null)
             {
                 yield return caps.Clone();
             }

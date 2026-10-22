@@ -28,6 +28,7 @@ public enum MatchKind : byte
 /// sees the whole haystack, so <c>\A</c> holds only at offset 0 and <c>\z</c>
 /// only at the haystack's end, wherever the span is.
 /// </summary>
+[NonUserCode]
 public readonly record struct Input
 {
     public ReadOnlyMemory<byte> Haystack { get; }
@@ -77,6 +78,7 @@ public readonly record struct Input
 }
 
 /// <summary>A match: <c>Start</c> inclusive, <c>End</c> exclusive.</summary>
+[NonUserCode]
 public readonly record struct Match(int Start, int End)
 {
     public bool IsEmpty => Start == End;
@@ -90,6 +92,7 @@ public readonly record struct Match(int Start, int End)
 /// The capture slots of one match: for group g, slot 2g is where it started
 /// and slot 2g+1 where it ended, or -1 if it took no part.
 /// </summary>
+[NonUserCode]
 public sealed class Captures
 {
     public int[] Slots { get; }
@@ -123,7 +126,7 @@ public sealed class Captures
     }
 
     public override string ToString() =>
-        "[" + string.Join(", ", Enumerable.Range(0, GroupLength).Select(g => Get(g)?.ToString() ?? "-")) + "]";
+        "[" + string.Join(", ", Enumerable.Range(0, GroupLength).Select([NonUserCode] (g) => Get(g)?.ToString() ?? "-")) + "]";
 }
 
 /// <summary>
@@ -142,6 +145,7 @@ public sealed class Captures
 /// cannot move on, then just ends.
 /// </para>
 /// </remarks>
+[NonUserCode]
 public sealed class Searcher
 {
     private Input _input;

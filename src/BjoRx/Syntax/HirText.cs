@@ -28,6 +28,7 @@ namespace BjoRx.Syntax;
 /// read back is simplified as any other is.
 /// </para>
 /// </remarks>
+[NonUserCode]
 public static class HirText
 {
     public static string Write(Hir hir)
@@ -112,6 +113,7 @@ public static class HirText
         return hir;
     }
 
+    [NonUserCode]
     private sealed class Reader(string text)
     {
         private int _at;

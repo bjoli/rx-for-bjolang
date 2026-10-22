@@ -6,6 +6,7 @@ using System.Text;
 namespace BjoRx.Utf8;
 
 /// <summary>A single inclusive range of UTF-8 bytes.</summary>
+[NonUserCode]
 public readonly record struct Utf8Range(byte Start, byte End)
 {
     public bool Matches(byte b) => Start <= b && b <= End;
@@ -18,6 +19,7 @@ public readonly record struct Utf8Range(byte Start, byte End)
 /// successive byte is in the corresponding range: <c>[C2-DF][80-BF]</c> does
 /// not match <c>DD 61</c>, because 61 is below 80.
 /// </summary>
+[NonUserCode]
 public readonly struct Utf8Sequence : IEquatable<Utf8Sequence>
 {
     private readonly Utf8Range _r0, _r1, _r2, _r3;
@@ -128,6 +130,7 @@ public readonly struct Utf8Sequence : IEquatable<Utf8Sequence>
 /// <c>grep</c>; Lucene's <c>UTF32ToUTF8</c> does the same.
 /// </para>
 /// </remarks>
+[NonUserCode]
 public sealed class Utf8Sequences
 {
     private const int MaxUtf8Bytes = 4;

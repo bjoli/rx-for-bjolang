@@ -6,6 +6,7 @@ using BjoRx.Search;
 
 namespace BjoRx.Hybrid;
 
+[NonUserCode]
 public sealed record DfaConfig
 {
     public MatchKind MatchKind { get; init; } = MatchKind.LeftmostFirst;
@@ -61,6 +62,7 @@ public enum DfaStatus : byte
 /// The outcome of a DFA search: one end of a match (the end for a forward
 /// search, the start for a reverse one), no match, or where it gave up.
 /// </summary>
+[NonUserCode]
 public readonly record struct DfaResult(DfaStatus Status, int Offset)
 {
     public static DfaResult NoMatch => default;
@@ -99,6 +101,7 @@ public readonly record struct DfaResult(DfaStatus Status, int Offset)
 /// the reversed NFA, anchored there, finds where it starts.
 /// </para>
 /// </remarks>
+[NonUserCode]
 public sealed partial class DFA
 {
     // Two sentinels, the unknown state at 0 and the dead state after it,
@@ -381,6 +384,7 @@ public sealed partial class DFA
     /// A state kept across a cache clear, because a transition from it is
     /// being added: its old id and bytes until the clear, its new id after.
     /// </summary>
+    [NonUserCode]
     internal readonly record struct StateSaver(StateSaver.Kind Which, LazyStateId Id, byte[]? State)
     {
         public enum Kind : byte { None, ToSave, Saved }
@@ -390,6 +394,7 @@ public sealed partial class DFA
     /// A lazy DFA's states and transitions, built up across searches. One per
     /// thread; a search mutates it.
     /// </summary>
+    [NonUserCode]
     public sealed class Cache
     {
         internal LazyStateId[] Trans = [];

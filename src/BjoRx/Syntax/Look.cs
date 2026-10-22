@@ -14,6 +14,7 @@ public enum Look : ushort
     End = 1 << 1,
 }
 
+[NonUserCode]
 public static class LookExtensions
 {
     /// <summary>The same assertion for a search that runs backwards.</summary>
@@ -33,6 +34,7 @@ public static class LookExtensions
 }
 
 /// <summary>A set of <see cref="Look"/>s, as a bit set.</summary>
+[NonUserCode]
 public readonly record struct LookSet(ushort Bits)
 {
     private const ushort AllBits = (ushort)(Look.Start | Look.End);
@@ -68,5 +70,5 @@ public readonly record struct LookSet(ushort Bits)
     }
 
     public override string ToString() =>
-        IsEmpty ? "∅" : string.Concat(Iterate().Select(l => l.AsChar()));
+        IsEmpty ? "∅" : string.Concat(Iterate().Select([NonUserCode] (l) => l.AsChar()));
 }

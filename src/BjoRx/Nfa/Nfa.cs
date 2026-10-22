@@ -7,6 +7,7 @@ using BjoRx.Syntax;
 namespace BjoRx.Nfa;
 
 /// <summary>A transition on any byte in <c>Start..=End</c> to <c>Next</c>.</summary>
+[NonUserCode]
 public readonly record struct Transition(byte Start, byte End, int Next)
 {
     public bool Matches(byte b) => Start <= b && b <= End;
@@ -41,6 +42,7 @@ public enum StateKind : byte
 /// One NFA state. A struct with a field for every kind, rather than a class
 /// per kind, so that the states sit in one array.
 /// </summary>
+[NonUserCode]
 public readonly struct State
 {
     public StateKind Kind { get; private init; }
@@ -87,9 +89,9 @@ public readonly struct State
     internal State Remap(int[] remap) => Kind switch
     {
         StateKind.ByteRange => this with { Trans = Trans with { Next = remap[Trans.Next] } },
-        StateKind.Sparse => this with { Transitions = Transitions.Select(t => t with { Next = remap[t.Next] }).ToArray() },
+        StateKind.Sparse => this with { Transitions = Transitions.Select([NonUserCode] (t) => t with { Next = remap[t.Next] }).ToArray() },
         StateKind.Look or StateKind.Capture => this with { Next = remap[Next] },
-        StateKind.Union => this with { Alternates = Alternates.Select(a => remap[a]).ToArray() },
+        StateKind.Union => this with { Alternates = Alternates.Select([NonUserCode] (a) => remap[a]).ToArray() },
         StateKind.BinaryUnion => this with { Alt1 = remap[Alt1], Alt2 = remap[Alt2] },
         _ => this,
     };
@@ -113,6 +115,7 @@ public readonly struct State
 /// Group 0 is the whole match and has no name. An NFA built without capture
 /// states has no groups at all.
 /// </summary>
+[NonUserCode]
 public sealed class GroupInfo
 {
     private readonly string?[] _names;
@@ -149,6 +152,7 @@ public sealed class GroupInfo
 /// apart. A DFA indexes its transitions by class, plus one class past the
 /// last for the end of input.
 /// </summary>
+[NonUserCode]
 public sealed class ByteClasses
 {
     private readonly byte[] _classOf;
@@ -208,6 +212,7 @@ public sealed class ByteClasses
 /// Collects the byte ranges an NFA distinguishes, so that the bytes can be
 /// put into classes: a range splits the classes at both its ends.
 /// </summary>
+[NonUserCode]
 internal sealed class ByteClassSet
 {
     // A set bit for byte b means a new class starts at b + 1.
@@ -235,6 +240,7 @@ internal sealed class ByteClassSet
 /// <summary>
 /// A Thompson NFA over bytes, for one pattern. Built by <see cref="Compiler"/>.
 /// </summary>
+[NonUserCode]
 public sealed class NFA
 {
     public State[] States { get; }

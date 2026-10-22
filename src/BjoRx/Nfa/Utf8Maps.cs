@@ -9,11 +9,13 @@ namespace BjoRx.Nfa;
 /// a forgotten entry only costs a duplicate state. Clearing bumps a version
 /// rather than wiping the table, so clearing per class is cheap.
 /// </summary>
+[NonUserCode]
 internal sealed class Utf8BoundedMap
 {
     private const ulong Prime = 1099511628211;
     private const ulong Init = 14695981039346656037;
 
+    [NonUserCode]
     private struct Entry
     {
         public ushort Version;
@@ -72,13 +74,16 @@ internal sealed class Utf8BoundedMap
 /// The same kind of map for the reverse compiler's suffix cache, keyed by the
 /// state a byte range leads to and the range itself.
 /// </summary>
+[NonUserCode]
 internal sealed class Utf8SuffixMap
 {
     private const ulong Prime = 1099511628211;
     private const ulong Init = 14695981039346656037;
 
+    [NonUserCode]
     public readonly record struct Key(int From, byte Start, byte End);
 
+    [NonUserCode]
     private struct Entry
     {
         public ushort Version;

@@ -23,6 +23,7 @@ namespace BjoRx.Syntax;
 /// literals can be merged; one built from scalars is always valid UTF-8.
 /// </para>
 /// </remarks>
+[NonUserCode]
 public abstract class Hir : IEquatable<Hir>
 {
     public Properties Properties { get; }
@@ -156,7 +157,7 @@ public abstract class Hir : IEquatable<Hir>
         // 'a|b|c' and alternations of classes are one class.
         if (SingletonScalars(flat) is { } singletons)
         {
-            return Class(new ScalarClass(singletons.Select(c => new ScalarRange(c, c))));
+            return Class(new ScalarClass(singletons.Select([NonUserCode] (c) => new ScalarRange(c, c))));
         }
         if (UnionOfClasses(flat) is { } cls)
         {
@@ -226,7 +227,7 @@ public abstract class Hir : IEquatable<Hir>
             if (prefixLength == 0) return null;
         }
 
-        var suffixes = hirs.Select(h => Concat(((HirConcat)h).Subs.Skip(prefixLength))).ToList();
+        var suffixes = hirs.Select([NonUserCode] (h) => Concat(((HirConcat)h).Subs.Skip(prefixLength))).ToList();
         var concatenated = first.Subs.Take(prefixLength).ToList();
         concatenated.Add(Alternation(suffixes));
         return Concat(concatenated);
@@ -243,6 +244,7 @@ public abstract class Hir : IEquatable<Hir>
     public abstract override string ToString();
 }
 
+[NonUserCode]
 public sealed class HirEmpty : Hir
 {
     internal static readonly HirEmpty Instance = new();
@@ -257,6 +259,7 @@ public sealed class HirEmpty : Hir
 }
 
 /// <summary>A non-empty string of bytes.</summary>
+[NonUserCode]
 public sealed class HirLiteral : Hir
 {
     public byte[] Bytes { get; }
@@ -291,6 +294,7 @@ public sealed class HirLiteral : Hir
 }
 
 /// <summary>One scalar from a set. Never empty in a well-formed tree except as <see cref="Hir.Fail"/>.</summary>
+[NonUserCode]
 public sealed class HirClass : Hir
 {
     public ScalarClass Set { get; }
@@ -307,6 +311,7 @@ public sealed class HirClass : Hir
     public override string ToString() => Set.ToString();
 }
 
+[NonUserCode]
 public sealed class HirLook : Hir
 {
     public Look Assertion { get; }
@@ -324,6 +329,7 @@ public sealed class HirLook : Hir
 }
 
 /// <summary><c>sub{min,max}</c>; a null maximum is unbounded.</summary>
+[NonUserCode]
 public sealed class HirRepetition : Hir
 {
     public uint Min { get; }
@@ -363,6 +369,7 @@ public sealed class HirRepetition : Hir
     }
 }
 
+[NonUserCode]
 public sealed class HirCapture : Hir
 {
     /// <summary>The group's number. Group 0 is the whole match, so this starts at 1.</summary>
@@ -386,6 +393,7 @@ public sealed class HirCapture : Hir
 }
 
 /// <summary>Two or more parts in sequence, none of them a concatenation or empty.</summary>
+[NonUserCode]
 public sealed class HirConcat : Hir
 {
     public IReadOnlyList<Hir> Subs { get; }
@@ -404,15 +412,16 @@ public sealed class HirConcat : Hir
         return hash.ToHashCode();
     }
 
-    public override string ToString() => string.Concat(Subs.Select(s => s is HirAlternation ? $"(?:{s})" : s.ToString()));
+    public override string ToString() => string.Concat(Subs.Select([NonUserCode] (s) => s is HirAlternation ? $"(?:{s})" : s.ToString()));
 }
 
 /// <summary>Two or more branches, tried in order. None is itself an alternation.</summary>
+[NonUserCode]
 public sealed class HirAlternation : Hir
 {
     public IReadOnlyList<Hir> Subs { get; }
 
-    internal HirAlternation(List<Hir> subs) : base(Properties.Union(subs.Select(s => s.Properties).ToList()))
+    internal HirAlternation(List<Hir> subs) : base(Properties.Union(subs.Select([NonUserCode] (s) => s.Properties).ToList()))
     {
         Subs = subs;
     }

@@ -20,6 +20,7 @@ internal enum RetryKind : byte
 /// The outcome of a search in a reverse strategy: an offset with a match,
 /// or with no match from a forward search, the offset where it stopped.
 /// </summary>
+[NonUserCode]
 internal readonly record struct Retry(RetryKind Kind, int Offset)
 {
     public static Retry NoMatch(int stoppedAt = -1) => new(RetryKind.NoMatch, stoppedAt);
@@ -34,6 +35,7 @@ internal readonly record struct Retry(RetryKind Kind, int Offset)
 /// search that says where it stopped when it finds nothing. Without them,
 /// each literal candidate could rescan the same stretch of haystack.
 /// </summary>
+[NonUserCode]
 internal static class Limited
 {
     /// <summary>

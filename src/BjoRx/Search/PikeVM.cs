@@ -28,6 +28,7 @@ namespace BjoRx.Search;
 /// end.
 /// </para>
 /// </remarks>
+[NonUserCode]
 public sealed class PikeVM
 {
     public NFA Nfa { get; }
@@ -75,14 +76,14 @@ public sealed class PikeVM
     public IEnumerable<Match> FindAll(Cache cache, Input input)
     {
         var searcher = new Searcher(input);
-        while (searcher.Advance(i => Find(cache, i)) is { } m) yield return m;
+        while (searcher.Advance([NonUserCode] (i) => Find(cache, i)) is { } m) yield return m;
     }
 
     public IEnumerable<Captures> CapturesAll(Cache cache, Input input)
     {
         var searcher = new Searcher(input);
         var caps = new Captures(Nfa.GroupInfo.GroupLength);
-        while (searcher.Advance(i => Captures(cache, i, caps) ? caps.Overall : null) is not null)
+        while (searcher.Advance([NonUserCode] (i) => Captures(cache, i, caps) ? caps.Overall : null) is not null)
         {
             yield return caps.Clone();
         }
@@ -232,6 +233,7 @@ public sealed class PikeVM
         return -1;
     }
 
+    [NonUserCode]
     internal readonly record struct Frame(bool Restore, int SidOrSlot, int Offset);
 
     /// <summary>
@@ -305,6 +307,7 @@ public sealed class PikeVM
     };
 
     /// <summary>The state set and per-state slots for one step of the search.</summary>
+    [NonUserCode]
     internal sealed class ActiveStates(int states, int slotsPerState)
     {
         public readonly SparseSet Set = new(states);
@@ -315,6 +318,7 @@ public sealed class PikeVM
     /// The slots of every active state, in one array: a row per NFA state,
     /// plus a row at the end that is always absent, for the start of a search.
     /// </summary>
+    [NonUserCode]
     internal sealed class SlotTable
     {
         private readonly int[] _table;
@@ -347,6 +351,7 @@ public sealed class PikeVM
     /// The PikeVM's working memory. One per thread: a search uses it all, and
     /// keeps it for the next search so that searching does not allocate.
     /// </summary>
+    [NonUserCode]
     public sealed class Cache
     {
         internal readonly Stack<Frame> Stack = new();

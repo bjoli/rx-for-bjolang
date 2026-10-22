@@ -17,6 +17,7 @@ public enum WhichCaptures
     None,
 }
 
+[NonUserCode]
 public sealed record CompilerConfig
 {
     /// <summary>Match the pattern backwards, as a reverse search needs to find where a match starts.</summary>
@@ -45,8 +46,10 @@ public sealed record CompilerConfig
 /// capture of group 0 around the whole pattern. Not ported: upstream's literal
 /// trie for alternations of literals, which only makes the NFA smaller.
 /// </remarks>
+[NonUserCode]
 public sealed class Compiler
 {
+    [NonUserCode]
     private readonly record struct Ref(int Start, int End);
 
     private readonly CompilerConfig _config;
@@ -102,7 +105,7 @@ public sealed class Compiler
         HirLook look => CompileLook(look.Assertion),
         HirRepetition rep => CompileRepetition(rep),
         HirCapture cap => CompileCapture(cap.Index, cap.Name, cap.Sub),
-        HirConcat concat => CompileConcat(concat.Subs.Count, i => C(concat.Subs[i])),
+        HirConcat concat => CompileConcat(concat.Subs.Count, [NonUserCode] (i) => C(concat.Subs[i])),
         HirAlternation alt => CompileAlternationOf(alt.Subs),
         _ => throw new NotSupportedException(hir.GetType().Name),
     };
@@ -128,7 +131,7 @@ public sealed class Compiler
     /// <summary>An alternation; one of nothing but literals becomes a trie.</summary>
     private Ref CompileAlternationOf(IReadOnlyList<Hir> branches)
     {
-        int literals = branches.Count(b => b is HirLiteral);
+        int literals = branches.Count([NonUserCode] (b) => b is HirLiteral);
         if (literals <= 1 || literals < branches.Count) return CompileAlternation(branches.Select(C));
 
         var trie = new LiteralTrie(_config.Reverse);
@@ -179,8 +182,8 @@ public sealed class Compiler
     private Ref CompileRepetition(HirRepetition rep) => (rep.Min, rep.Max) switch
     {
         (0, 1) => CompileZeroOrOne(rep.Sub, rep.Greedy),
-        (var min, null) => CompileAtLeast(() => C(rep.Sub), rep.Sub.Properties.MinimumLength > 0, rep.Greedy, min),
-        (var min, { } max) when min == max => CompileExactly(() => C(rep.Sub), min),
+        (var min, null) => CompileAtLeast([NonUserCode] () => C(rep.Sub), rep.Sub.Properties.MinimumLength > 0, rep.Greedy, min),
+        (var min, { } max) when min == max => CompileExactly([NonUserCode] () => C(rep.Sub), min),
         (var min, { } max) => CompileBounded(rep.Sub, rep.Greedy, min, max),
     };
 
@@ -191,7 +194,7 @@ public sealed class Compiler
     /// </summary>
     private Ref CompileBounded(Hir expr, bool greedy, uint min, uint max)
     {
-        var prefix = CompileExactly(() => C(expr), min);
+        var prefix = CompileExactly([NonUserCode] () => C(expr), min);
         if (min == max) return prefix;
 
         int empty = _builder.AddEmpty();
@@ -274,7 +277,7 @@ public sealed class Compiler
         return new Ref(union, empty);
     }
 
-    private Ref CompileExactly(Func<Ref> sub, uint n) => CompileConcat((int)n, _ => sub());
+    private Ref CompileExactly(Func<Ref> sub, uint n) => CompileConcat((int)n, [NonUserCode] (_) => sub());
 
     /// <summary>Any byte, as upstream compiles a byte class: a sparse state and an empty one after it.</summary>
     private Ref CompileAnyByte()
@@ -289,7 +292,7 @@ public sealed class Compiler
         if (cls.IsAscii)
         {
             int end = _builder.AddEmpty();
-            var trans = cls.Ranges.Select(r => new Transition((byte)r.Start, (byte)r.End, end)).ToArray();
+            var trans = cls.Ranges.Select([NonUserCode] (r) => new Transition((byte)r.Start, (byte)r.End, end)).ToArray();
             return new Ref(_builder.AddSparse(trans), end);
         }
         if (_config.Reverse) return CompileUnicodeClassReverseWithSuffix(cls);
@@ -353,7 +356,7 @@ public sealed class Compiler
     }
 
     private Ref CompileLiteral(byte[] bytes) =>
-        CompileConcat(bytes.Length, i => CompileRange(bytes[i], bytes[i]));
+        CompileConcat(bytes.Length, [NonUserCode] (i) => CompileRange(bytes[i], bytes[i]));
 
     private Ref CompileRange(byte start, byte end)
     {
@@ -384,8 +387,10 @@ public sealed class Compiler
     /// sequence shares a prefix with that path; everything on the path below
     /// the shared prefix can no longer change, so it is frozen into states.
     /// </remarks>
+    [NonUserCode]
     private sealed class Utf8Compiler
     {
+        [NonUserCode]
         private sealed class Node
         {
             public readonly List<Transition> Trans = [];

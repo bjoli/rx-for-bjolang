@@ -13,6 +13,7 @@ namespace BjoRx.Search;
 /// order and <c>_sparse[id]</c> says where in it <c>id</c> would be. Neither
 /// array needs to be cleared, because membership checks both.
 /// </remarks>
+[NonUserCode]
 public sealed class SparseSet
 {
     private int[] _dense;
@@ -61,6 +62,7 @@ public sealed class SparseSet
 }
 
 /// <summary>Two sparse sets of the same capacity, for computing one from the other.</summary>
+[NonUserCode]
 public sealed class SparseSets(int capacity)
 {
     public SparseSet Set1 { get; private set; } = new(capacity);

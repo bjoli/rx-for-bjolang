@@ -8,6 +8,7 @@ namespace BjoRx.Syntax;
 /// (most common). Literal extraction uses it to avoid prefilters on bytes
 /// that would match all the time.
 /// </summary>
+[NonUserCode]
 public static class Rank
 {
     public static byte Of(byte b) => ByteFrequencies[b];

@@ -11,6 +11,7 @@ namespace BjoRx.Hybrid;
 /// A regex made of two lazy DFAs: a forward one that finds where a match
 /// ends, and a reverse one that finds where it starts. No capture groups.
 /// </summary>
+[NonUserCode]
 public sealed class Regex
 {
     public DFA Forward { get; }
@@ -106,12 +107,13 @@ public sealed class Regex
     public IEnumerable<Match> FindAll(Cache cache, Input input)
     {
         var searcher = new Searcher(input);
-        while (searcher.Advance(i => TrySearch(cache, i, out var m) ? m : throw new InvalidOperationException("the lazy DFA gave up")) is { } m)
+        while (searcher.Advance([NonUserCode] (i) => TrySearch(cache, i, out var m) ? m : throw new InvalidOperationException("the lazy DFA gave up")) is { } m)
         {
             yield return m;
         }
     }
 
+    [NonUserCode]
     public sealed class Cache
     {
         public DFA.Cache Forward { get; }

@@ -20,6 +20,7 @@ namespace BjoRx.Hybrid;
 /// which only Unicode word boundaries need; it is not ported.
 /// </para>
 /// </remarks>
+[NonUserCode]
 public readonly record struct LazyStateId(uint Raw)
 {
     private const uint MaskUnknown = 1u << 31;

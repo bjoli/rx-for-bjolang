@@ -19,6 +19,7 @@ namespace BjoRx.Meta;
 /// those strategies are used only when one of these proofs holds. Every
 /// proof is conservative: false means "could not show it", not "unsafe".
 /// </remarks>
+[NonUserCode]
 internal static class LiteralProofs
 {
     /// <summary>
@@ -40,7 +41,7 @@ internal static class LiteralProofs
     /// </summary>
     public static bool InnerHasNoEarlierMatch(Hir prefix, IReadOnlyList<byte[]> literals)
     {
-        if (literals.Count == 0 || literals.Any(l => l.Length == 0)) return false;
+        if (literals.Count == 0 || literals.Any([NonUserCode] (l) => l.Length == 0)) return false;
         // With one literal, an occurrence crossing into the prefix overlaps
         // another occurrence, which needs the prefix to consume every
         // distinct byte of the literal.
@@ -53,7 +54,7 @@ internal static class LiteralProofs
     /// byte of <paramref name="literal"/>. Low precision: true means maybe.
     /// </summary>
     public static bool CanContainLiteral(Hir hir, byte[] literal) =>
-        literal.Length == 0 || literal.All(b => CanConsumeByte(hir, b));
+        literal.Length == 0 || literal.All([NonUserCode] (b) => CanConsumeByte(hir, b));
 
     public static bool HasFixedLength(Hir hir) =>
         hir.Properties.MinimumLength is { } min && hir.Properties.MaximumLength == min;
@@ -85,7 +86,7 @@ internal static class LiteralProofs
     private static bool HasDisjointClassSeparatorAt(IReadOnlyList<Hir> hirs, int separator, IReadOnlyList<byte[]> literals)
     {
         if (RequiredClass(hirs[separator]) is not { } cls) return false;
-        if (!literals.All(l => ClassIsDisjointFromLiteral(cls, l))) return false;
+        if (!literals.All([NonUserCode] (l) => ClassIsDisjointFromLiteral(cls, l))) return false;
         for (int i = 0; i < hirs.Count; i++)
         {
             if (i != separator && !IsDisjointFromClass(hirs[i], cls)) return false;
@@ -109,8 +110,8 @@ internal static class LiteralProofs
         HirClass c => ClassesAreDisjoint(c.Set, separator),
         HirRepetition r => IsDisjointFromClass(r.Sub, separator),
         HirCapture c => IsDisjointFromClass(c.Sub, separator),
-        HirConcat c => c.Subs.All(s => IsDisjointFromClass(s, separator)),
-        HirAlternation a => a.Subs.All(s => IsDisjointFromClass(s, separator)),
+        HirConcat c => c.Subs.All([NonUserCode] (s) => IsDisjointFromClass(s, separator)),
+        HirAlternation a => a.Subs.All([NonUserCode] (s) => IsDisjointFromClass(s, separator)),
         _ => false,
     };
 
@@ -149,8 +150,8 @@ internal static class LiteralProofs
         HirClass c => b > 0x7F || c.Set.Contains(b),
         HirRepetition r => CanConsumeByte(r.Sub, b),
         HirCapture c => CanConsumeByte(c.Sub, b),
-        HirConcat c => c.Subs.Any(s => CanConsumeByte(s, b)),
-        HirAlternation a => a.Subs.Any(s => CanConsumeByte(s, b)),
+        HirConcat c => c.Subs.Any([NonUserCode] (s) => CanConsumeByte(s, b)),
+        HirAlternation a => a.Subs.Any([NonUserCode] (s) => CanConsumeByte(s, b)),
         _ => true,
     };
 

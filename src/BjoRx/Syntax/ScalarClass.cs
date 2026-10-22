@@ -11,6 +11,7 @@ namespace BjoRx.Syntax;
 /// but the range may span the surrogate block; the surrogates in it are not
 /// members.
 /// </summary>
+[NonUserCode]
 public readonly record struct ScalarRange : IComparable<ScalarRange>
 {
     public uint Start { get; }
@@ -86,6 +87,7 @@ public readonly record struct ScalarRange : IComparable<ScalarRange>
 /// no use for. The operations work in place, and append their result after the
 /// existing ranges before removing those, so that a set is rebuilt in one list.
 /// </remarks>
+[NonUserCode]
 public sealed class ScalarClass : IEquatable<ScalarClass>
 {
     private const uint MinScalar = 0;

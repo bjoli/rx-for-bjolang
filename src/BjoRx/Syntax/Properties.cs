@@ -7,6 +7,7 @@ namespace BjoRx.Syntax;
 /// Facts about an <see cref="Hir"/>, computed once when it is built from the
 /// facts about its parts, so that every query is constant time.
 /// </summary>
+[NonUserCode]
 public sealed record Properties
 {
     /// <summary>

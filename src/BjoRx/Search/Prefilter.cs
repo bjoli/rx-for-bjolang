@@ -22,6 +22,7 @@ namespace BjoRx.Search;
 /// there in order of preference.
 /// </para>
 /// </remarks>
+[NonUserCode]
 public abstract class Prefilter
 {
     /// <summary>The length of the longest literal; 0 for a prefilter that searches for something else.</summary>
@@ -52,18 +53,18 @@ public abstract class Prefilter
     /// </summary>
     public static Prefilter? Create(IReadOnlyList<byte[]> needles)
     {
-        if (needles.Count == 0 || needles.Any(n => n.Length == 0)) return null;
-        bool allBytes = needles.All(n => n.Length == 1);
+        if (needles.Count == 0 || needles.Any([NonUserCode] (n) => n.Length == 0)) return null;
+        bool allBytes = needles.All([NonUserCode] (n) => n.Length == 1);
         Prefilter pre = (needles.Count, allBytes) switch
         {
             (1, true) => new Memchr(needles[0][0]),
             (2, true) => new Memchr2(needles[0][0], needles[1][0]),
             (3, true) => new Memchr3(needles[0][0], needles[1][0], needles[2][0]),
             (1, false) => new Memmem(needles[0]),
-            (_, true) => new ByteSet(needles.Select(n => n[0])),
+            (_, true) => new ByteSet(needles.Select([NonUserCode] (n) => n[0])),
             _ => new FirstBytes(needles),
         };
-        pre.MaxNeedleLength = needles.Max(n => n.Length);
+        pre.MaxNeedleLength = needles.Max([NonUserCode] (n) => n.Length);
         return pre;
     }
 
@@ -79,12 +80,13 @@ public abstract class Prefilter
     }
 
     public static Prefilter? FromHirPrefix(Hir hir) =>
-        Prefixes(hir).Literals is { } lits ? Create(lits.Select(l => l.Bytes).ToList()) : null;
+        Prefixes(hir).Literals is { } lits ? Create(lits.Select([NonUserCode] (l) => l.Bytes).ToList()) : null;
 
     public override string ToString() => Name;
 
     private static Match? At(int start, int length) => new Match(start, start + length);
 
+    [NonUserCode]
     private sealed class Memchr(byte b) : Prefilter
     {
         public override bool IsFast => true;
@@ -100,6 +102,7 @@ public abstract class Prefilter
             start < end && haystack[start] == b ? At(start, 1) : null;
     }
 
+    [NonUserCode]
     private sealed class Memchr2(byte b1, byte b2) : Prefilter
     {
         public override bool IsFast => true;
@@ -115,6 +118,7 @@ public abstract class Prefilter
             start < end && (haystack[start] == b1 || haystack[start] == b2) ? At(start, 1) : null;
     }
 
+    [NonUserCode]
     private sealed class Memchr3(byte b1, byte b2, byte b3) : Prefilter
     {
         public override bool IsFast => true;
@@ -130,6 +134,7 @@ public abstract class Prefilter
             start < end && (haystack[start] == b1 || haystack[start] == b2 || haystack[start] == b3) ? At(start, 1) : null;
     }
 
+    [NonUserCode]
     private sealed class Memmem(byte[] needle) : Prefilter
     {
         public override bool IsFast => true;
@@ -145,6 +150,7 @@ public abstract class Prefilter
             haystack[start..end].StartsWith(needle) ? At(start, needle.Length) : null;
     }
 
+    [NonUserCode]
     private sealed class ByteSet(IEnumerable<byte> bytes) : Prefilter
     {
         private readonly SearchValues<byte> _set = SearchValues.Create(bytes.ToArray());
@@ -164,6 +170,7 @@ public abstract class Prefilter
     }
 
     /// <summary>Several literals: a search for their first bytes, then a check of the literals starting there.</summary>
+    [NonUserCode]
     private sealed class FirstBytes : Prefilter
     {
         private readonly SearchValues<byte> _firstBytes;
@@ -173,12 +180,12 @@ public abstract class Prefilter
 
         public FirstBytes(IReadOnlyList<byte[]> needles)
         {
-            _firstBytes = SearchValues.Create(needles.Select(n => n[0]).Distinct().ToArray());
-            foreach (var group in needles.GroupBy(n => n[0]))
+            _firstBytes = SearchValues.Create(needles.Select([NonUserCode] (n) => n[0]).Distinct().ToArray());
+            foreach (var group in needles.GroupBy([NonUserCode] (n) => n[0]))
             {
                 _byFirstByte[group.Key] = group.ToArray();
             }
-            _minimumLength = needles.Min(n => n.Length);
+            _minimumLength = needles.Min([NonUserCode] (n) => n.Length);
         }
 
         // Teddy's rule upstream: short literals give too many candidates.

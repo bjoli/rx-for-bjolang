@@ -18,6 +18,7 @@ namespace BjoRx.Meta;
 /// <c>[0-9]+@!|[a-z]+%%</c> has literals one of which must match, but no
 /// single prefix, so it is not handled.
 /// </remarks>
+[NonUserCode]
 internal sealed class InnerPrefilter
 {
     public Hir Prefix { get; }
@@ -65,7 +66,7 @@ internal sealed class InnerPrefilter
         prefixes.MakeInexact();
         prefixes.OptimizeForPrefixByPreference();
         if (prefixes.Literals is not { } lits) return null;
-        var bytes = lits.Select(l => l.Bytes).ToList();
+        var bytes = lits.Select([NonUserCode] (l) => l.Bytes).ToList();
         return Prefilter.Create(bytes) is { } pre ? (pre, bytes) : null;
     }
 

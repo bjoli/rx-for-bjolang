@@ -9,6 +9,7 @@ namespace BjoRx.Syntax;
 /// A string of bytes that a match of some pattern starts with. Exact if the
 /// whole match is this string, inexact if the match may go on.
 /// </summary>
+[NonUserCode]
 public sealed class Literal : IEquatable<Literal>
 {
     public byte[] Bytes { get; private set; }
@@ -80,6 +81,7 @@ public sealed class Literal : IEquatable<Literal>
 /// A sequence of literals in order of preference, or "infinite": every
 /// string, when there are too many literals to be worth listing.
 /// </summary>
+[NonUserCode]
 public sealed class Seq : IEquatable<Seq>
 {
     private List<Literal>? _literals;
@@ -102,7 +104,7 @@ public sealed class Seq : IEquatable<Seq>
         return seq;
     }
 
-    public Seq Clone() => new(_literals?.Select(l => l.Clone()).ToList());
+    public Seq Clone() => new(_literals?.Select([NonUserCode] (l) => l.Clone()).ToList());
 
     /// <summary>The literals, or null when the sequence is infinite.</summary>
     public IReadOnlyList<Literal>? Literals => _literals;
@@ -255,10 +257,10 @@ public sealed class Seq : IEquatable<Seq>
     public int? Count => _literals?.Count;
 
     /// <summary>True if every literal is exact (and the sequence finite).</summary>
-    public bool IsExact => _literals is { } lits && lits.All(l => l.IsExact);
+    public bool IsExact => _literals is { } lits && lits.All([NonUserCode] (l) => l.IsExact);
 
     /// <summary>True if no literal is exact; an infinite sequence is.</summary>
-    public bool IsInexact => _literals is not { } lits || lits.All(l => !l.IsExact);
+    public bool IsInexact => _literals is not { } lits || lits.All([NonUserCode] (l) => !l.IsExact);
 
     public int? MaxUnionLength(Seq other) => Count is { } a && other.Count is { } b ? SaturatingAdd(a, b) : null;
 
@@ -266,9 +268,9 @@ public sealed class Seq : IEquatable<Seq>
 
     private static int SaturatingAdd(int a, int b) => (int)Math.Min((long)a + b, int.MaxValue);
 
-    public int? MinLiteralLength => _literals is { Count: > 0 } lits ? lits.Min(l => l.Length) : null;
+    public int? MinLiteralLength => _literals is { Count: > 0 } lits ? lits.Min([NonUserCode] (l) => l.Length) : null;
 
-    public int? MaxLiteralLength => _literals is { Count: > 0 } lits ? lits.Max(l => l.Length) : null;
+    public int? MaxLiteralLength => _literals is { Count: > 0 } lits ? lits.Max([NonUserCode] (l) => l.Length) : null;
 
     public byte[]? LongestCommonPrefix()
     {
@@ -357,7 +359,7 @@ public sealed class Seq : IEquatable<Seq>
             KeepBytes(prefix, keep);
             if (prefix) PreferenceTrie.Minimize(_literals!, keepExact: true);
         }
-        if (_literals is { } finalLits && finalLits.Any(l => l.IsPoisonous)) MakeInfinite();
+        if (_literals is { } finalLits && finalLits.Any([NonUserCode] (l) => l.IsPoisonous)) MakeInfinite();
         if (exact is not null && (!IsFinite || MinLiteralLength is null or <= 2 || Count > 64))
         {
             _literals = exact._literals;
@@ -382,6 +384,7 @@ public sealed class Seq : IEquatable<Seq>
 /// Removes the literals that an earlier literal is a prefix of: under
 /// leftmost-first semantics, the earlier one always wins where both match.
 /// </summary>
+[NonUserCode]
 internal sealed class PreferenceTrie
 {
     private readonly List<List<(byte Byte, int Next)>> _states = [];
@@ -469,6 +472,7 @@ internal sealed class PreferenceTrie
 /// Extracts the literals that every match of an <see cref="Hir"/> starts
 /// (or ends) with, within limits that keep the sequence small.
 /// </summary>
+[NonUserCode]
 public sealed class Extractor
 {
     public ExtractKind Kind { get; init; } = ExtractKind.Prefix;

@@ -27,6 +27,7 @@ namespace BjoRx.Hybrid;
 /// one pattern and only <c>\A</c>/<c>\z</c> none of them can vary.
 /// </para>
 /// </remarks>
+[NonUserCode]
 internal static class DfaState
 {
     public const int HeaderLength = 5;
@@ -43,6 +44,7 @@ internal static class DfaState
     public static NfaIds NfaStateIds(ReadOnlySpan<byte> state) => new(state[HeaderLength..]);
 
     /// <summary>Iterates the NFA state ids of a state, in order.</summary>
+    [NonUserCode]
     public ref struct NfaIds(ReadOnlySpan<byte> encoded)
     {
         private ReadOnlySpan<byte> _rest = encoded;
@@ -96,6 +98,7 @@ internal static class DfaState
 /// order: <see cref="Clear"/> (empty), <see cref="StartMatches"/> (record a
 /// match and assertions), <see cref="StartNfa"/> (add NFA states).
 /// </summary>
+[NonUserCode]
 internal sealed class StateBuilder
 {
     private byte[] _buffer = new byte[64];
@@ -152,6 +155,7 @@ internal sealed class StateBuilder
 /// Compares states by content, and lets a dictionary keyed by states be
 /// searched with a builder's span, so that a lookup does not allocate.
 /// </summary>
+[NonUserCode]
 internal sealed class DfaStateComparer : IEqualityComparer<byte[]>, IAlternateEqualityComparer<ReadOnlySpan<byte>, byte[]>
 {
     public static readonly DfaStateComparer Instance = new();

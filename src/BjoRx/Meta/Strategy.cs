@@ -14,6 +14,7 @@ namespace BjoRx.Meta;
 /// Upstream also has strategies that search for a suffix or an inner
 /// literal and then search backwards; they are not ported.
 /// </summary>
+[NonUserCode]
 internal abstract class Strategy
 {
     public abstract string Name { get; }
@@ -44,7 +45,7 @@ internal abstract class Strategy
         {
             var prefixes = Prefilter.Prefixes(hir);
             if (Pre.FromPrefixes(info, prefixes) is { } literalsOnly) return literalsOnly;
-            pre = prefixes.Literals is { } lits ? Prefilter.Create(lits.Select(l => l.Bytes).ToList()) : null;
+            pre = prefixes.Literals is { } lits ? Prefilter.Create(lits.Select([NonUserCode] (l) => l.Bytes).ToList()) : null;
         }
         var core = Core.Create(info, pre, hir);
         return ReverseAnchored.Create(core)
@@ -78,6 +79,7 @@ internal abstract class Strategy
 }
 
 /// <summary>The regex is a set of exact literals, so finding a literal is finding a match.</summary>
+[NonUserCode]
 internal sealed class Pre(Prefilter pre) : Strategy
 {
     private static readonly GroupInfo ImplicitOnly = new([null]);
@@ -92,7 +94,7 @@ internal sealed class Pre(Prefilter pre) : Strategy
         // caller to see, and no assertions, which extraction treats as always
         // true (it gets "ab" from a\zb).
         if (!prefixes.IsExact || info.Props.ExplicitCapturesLength != 0 || !info.Props.LookSet.IsEmpty) return null;
-        var pre = Prefilter.Create(prefixes.Literals!.Select(l => l.Bytes).ToList());
+        var pre = Prefilter.Create(prefixes.Literals!.Select([NonUserCode] (l) => l.Bytes).ToList());
         return pre is null ? null : new Pre(pre);
     }
 
@@ -124,6 +126,7 @@ internal sealed class Pre(Prefilter pre) : Strategy
 /// the groups in that span only. When the DFA gives up or could not be
 /// built, the PikeVM searches alone.
 /// </summary>
+[NonUserCode]
 internal sealed class Core : Strategy
 {
     public RegexInfo Info { get; }
@@ -243,6 +246,7 @@ internal sealed class Core : Strategy
 /// Every match ends at the end of the haystack, so one reverse search from
 /// there, anchored, finds it. Upstream's ReverseAnchored.
 /// </summary>
+[NonUserCode]
 internal sealed class ReverseAnchored : Strategy
 {
     private readonly Core _core;
@@ -308,6 +312,7 @@ internal sealed class ReverseAnchored : Strategy
 /// (which may be past this literal: <c>[a-z]+ing</c> in <c>tingling</c>).
 /// Upstream's ReverseSuffix.
 /// </summary>
+[NonUserCode]
 internal sealed class ReverseSuffix : Strategy
 {
     private readonly Core _core;
@@ -419,6 +424,7 @@ internal sealed class ReverseSuffix : Strategy
 /// literal, search backwards for the prefix to find where the match starts,
 /// then forwards from there for where it ends. Upstream's ReverseInner.
 /// </summary>
+[NonUserCode]
 internal sealed class ReverseInner : Strategy
 {
     private readonly Core _core;

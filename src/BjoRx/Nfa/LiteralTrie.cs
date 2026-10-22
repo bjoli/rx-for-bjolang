@@ -21,10 +21,13 @@ namespace BjoRx.Nfa;
 /// A reverse trie adds each literal backwards.
 /// </para>
 /// </remarks>
+[NonUserCode]
 internal sealed class LiteralTrie
 {
+    [NonUserCode]
     private readonly record struct Trans(byte Byte, int Next);
 
+    [NonUserCode]
     private sealed class TState
     {
         public readonly List<Trans> Transitions = [];
@@ -89,6 +92,7 @@ internal sealed class LiteralTrie
         return next;
     }
 
+    [NonUserCode]
     private sealed class Frame
     {
         public readonly IEnumerator<(int Start, int End)> Chunks;

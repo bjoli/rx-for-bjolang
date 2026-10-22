@@ -6,6 +6,7 @@ using BjoRx.Syntax;
 namespace BjoRx.Nfa;
 
 /// <summary>Raised when an NFA cannot be built, for instance because it would be too big.</summary>
+[NonUserCode]
 public sealed class BuildException(string message) : Exception(message);
 
 /// <summary>
@@ -20,6 +21,7 @@ public sealed class BuildException(string message) : Exception(message);
 /// repetition is easiest to patch. A capture has a start and an end state here
 /// and becomes two Capture states with their slots.
 /// </remarks>
+[NonUserCode]
 public sealed class Builder
 {
     private enum Kind : byte
@@ -36,6 +38,7 @@ public sealed class Builder
         Match,
     }
 
+    [NonUserCode]
     private sealed class BState
     {
         public Kind Kind;
@@ -201,6 +204,7 @@ public sealed class Builder
         var remap = new int[_states.Count];
         var empties = new List<(int Id, int Next)>();
 
+        [NonUserCode]
         int AddFinal(State s)
         {
             switch (s.Kind)
@@ -303,7 +307,7 @@ public sealed class Builder
             }
         }
 
-        var final = states.Select(s => s.Remap(remap)).ToArray();
+        var final = states.Select([NonUserCode] (s) => s.Remap(remap)).ToArray();
         int anchored = remap[startAnchored];
         int unanchored = remap[startUnanchored];
         var (hasEmpty, prefixAny) = Analyze(final, remap[_patternStart]);

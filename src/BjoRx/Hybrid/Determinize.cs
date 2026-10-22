@@ -32,6 +32,7 @@ public enum Start : byte
 /// of look-ahead to settle <c>\z</c>, which is also why every search ends by
 /// following the end-of-input transition.
 /// </remarks>
+[NonUserCode]
 internal static class Determinize
 {
     public const int Eoi = 256;
